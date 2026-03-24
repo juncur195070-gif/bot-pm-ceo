@@ -17,6 +17,7 @@ Para correr con Docker:
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, BackgroundTasks
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config.settings import settings
@@ -43,7 +44,8 @@ async def lifespan(app: FastAPI):
     # ── STARTUP ──
     print(f"🚀 Iniciando {settings.BOT_NAME} Bot...")
     print(f"   Entorno: {settings.SETUP}")
-    print(f"   DB: {settings.DATABASE_URL[:50]}...")
+    # No loguear DATABASE_URL — contiene credenciales
+    print(f"   DB: conectando...")
 
     # Conectar a PostgreSQL
     await init_db()
@@ -76,14 +78,13 @@ app = FastAPI(
 )
 
 
-# ── CORS: permitir requests desde cualquier origen ──
-# Necesario para cuando conectes un frontend web
+# ── CORS: origenes configurables via env var ──
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],      # En produccion: restringir al dominio del frontend
+    allow_origins=settings.CORS_ORIGINS.split(",") if settings.CORS_ORIGINS else [],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+    allow_headers=["X-API-Key", "Content-Type", "Authorization"],
 )
 
 
@@ -136,10 +137,14 @@ async def webhook_kapso(request: Request, background_tasks: BackgroundTasks):
 
     # 1. Verificar firma
     if not kapso_service.verificar_firma(body_bytes, signature):
-        return {"error": "Firma invalida"}, 401
+        print(f"  ⚠ SEGURIDAD: Firma invalida desde webhook. Signature: {signature[:20]}...")
+        return JSONResponse(status_code=401, content={"error": "Firma invalida"})
 
     # 2. Parsear payload
-    payload = await request.json()
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "JSON invalido"})
 
     # 3. Solo procesar mensajes entrantes (ignorar status updates)
     event = request.headers.get("X-Webhook-Event", "")
@@ -168,7 +173,10 @@ async def webhook_airtable(request: Request, background_tasks: BackgroundTasks):
 
     El bot actualiza PostgreSQL y los triggers calculan fechas automaticamente.
     """
-    payload = await request.json()
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "JSON invalido"})
     background_tasks.add_task(_procesar_cambio_airtable, payload)
     return {"status": "received"}
 
@@ -185,6 +193,7 @@ async def _procesar_cambio_airtable(payload: dict):
     anterior = payload.get("anterior_estado", "")
 
     if not codigo or not nuevo_estado:
+        print("  ⚠ Airtable webhook: payload incompleto, ignorando")
         return
 
     pool = get_pool()

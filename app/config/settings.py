@@ -11,6 +11,7 @@ Uso en cualquier parte del codigo:
 """
 
 from pydantic_settings import BaseSettings
+from pydantic import model_validator
 from typing import Optional
 
 
@@ -22,20 +23,11 @@ class Settings(BaseSettings):
     """
 
     # ── Bot ──
-    # Nombre del bot. Aparece en respuestas y prompts.
-    # Cambiar aqui = cambiar en TODO el sistema.
     BOT_NAME: str = "Carlo"
-
-    # Entorno de ejecucion
     SETUP: str = "LOCAL"  # LOCAL, DEV, PROD
 
     # ── Base de Datos ──
-    # URL completa de conexion a PostgreSQL
-    # Local: postgresql://postgres:postgres@db:5432/doctoc_bot
-    # Supabase: postgresql://postgres:[pwd]@db.[project].supabase.co:5432/postgres
     DATABASE_URL: str = "postgresql://postgres:postgres@db:5432/doctoc_bot"
-
-    # Pool de conexiones: cuantas conexiones simultaneas a la DB
     DB_POOL_MIN: int = 2
     DB_POOL_MAX: int = 10
 
@@ -43,8 +35,8 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     CLAUDE_MODEL_PRIMARY: str = "claude-haiku-4-5-20251001"
     CLAUDE_MODEL_FALLBACK: str = "claude-3-haiku-20240307"
-    CLAUDE_MAX_TOKENS: int = 800  # WhatsApp tiene limite de chars, no necesitamos mas
-    CLAUDE_TEMPERATURE: float = 0.1  # Bajo para evitar que invente datos
+    CLAUDE_MAX_TOKENS: int = 800
+    CLAUDE_TEMPERATURE: float = 0.1
 
     # ── WSJF Scoring ──
     WSJF_PESO_CLIENTE: float = 0.40
@@ -52,16 +44,24 @@ class Settings(BaseSettings):
     WSJF_PESO_URGENCIA: float = 0.25
 
     # ── Capacidad de devs (factor de carga por nivel) ──
-    # Porcentaje de horas_semana_base que se puede asignar
-    # El resto es para code review, reuniones, imprevistos
-    CARGA_JUNIOR: float = 0.75   # 75% — necesita mas tiempo para aprender
-    CARGA_MID: float = 0.80      # 80% — estandar
-    CARGA_SENIOR: float = 0.85   # 85% — mas eficiente
+    CARGA_JUNIOR: float = 0.75
+    CARGA_MID: float = 0.80
+    CARGA_SENIOR: float = 0.85
+
+    # ── Bug Guard ──
+    BUG_GUARD_RATIO: float = 0.6  # 60% bugs, 40% sprint
+
+    # ── Timeouts (segundos) ──
+    KAPSO_TIMEOUT: int = 10
+    AIRTABLE_TIMEOUT: int = 10
+    IMAGEN_RECIENTE_MINUTOS: int = 10
+    DEADLINE_AUTO_DIAS: int = 2
 
     # ── Kapso WhatsApp ──
     KAPSO_API_KEY: str = ""
     KAPSO_PHONE_NUMBER_ID: str = ""
     KAPSO_WEBHOOK_SECRET: str = ""
+    KAPSO_API_VERSION: str = "v24.0"
 
     # ── Airtable (sync push) ──
     AIRTABLE_API_KEY: str = ""
@@ -72,17 +72,34 @@ class Settings(BaseSettings):
     WHATSAPP_CEO: str = ""
 
     # ── API REST ──
-    API_KEY_ADMIN: str = "dev-api-key-123"
+    API_KEY_ADMIN: str = ""
+
+    # ── CORS ──
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
 
     # ── Observabilidad ──
     LOGFIRE_TOKEN: Optional[str] = None
 
-    # ── Configuracion de pydantic-settings ──
-    class Config:
-        # Buscar variables en archivo .env automaticamente
-        env_file = ".env"
-        # Si la variable existe en el sistema Y en .env, la del sistema gana
-        env_file_encoding = "utf-8"
+    # ── Columnas permitidas para ORDER BY (whitelist anti SQL injection) ──
+    ALLOWED_SORT_FIELDS: set = {
+        "posicion_backlog", "created_at", "updated_at", "score_wsjf",
+        "deadline_interno", "titulo", "estado", "tipo", "urgencia_declarada",
+    }
+
+    @model_validator(mode="after")
+    def validar_produccion(self):
+        """En PROD, API keys obligatorias no pueden estar vacias."""
+        if self.SETUP == "PROD":
+            if not self.API_KEY_ADMIN:
+                raise ValueError("API_KEY_ADMIN es obligatorio en PROD")
+            if not self.ANTHROPIC_API_KEY:
+                raise ValueError("ANTHROPIC_API_KEY es obligatorio en PROD")
+        return self
+
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+    }
 
 
 # Instancia global — importar desde cualquier parte del codigo

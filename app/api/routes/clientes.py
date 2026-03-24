@@ -14,9 +14,7 @@ import asyncpg
 
 from app.api.dependencies import get_db_conn
 from app.api.auth import verificar_api_key
-from app.models.schemas import (
-    ClienteCreate, ClienteUpdate, ClienteResponse, MessageResponse
-)
+from app.models.schemas import ClienteCreate, ClienteUpdate
 from app.db.queries import clientes as q
 
 router = APIRouter(
@@ -28,7 +26,7 @@ router = APIRouter(
 
 @router.get("/")
 async def listar_clientes(
-    estado: str = Query(None, description="Filtrar por estado: Activo, En riesgo, etc."),
+    estado: str | None = Query(None, description="Filtrar por estado: Activo, En riesgo, etc."),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     conn: asyncpg.Connection = Depends(get_db_conn)

@@ -47,28 +47,34 @@ async def asignar_emergencia(conn: asyncpg.Connection, item_id, item_codigo: str
     await conn.execute(
         """UPDATE backlog_items SET
             dev_id = $1, dev_nombre = $2,
-            estado = 'En Analisis',
             fecha_asignacion = NOW()
            WHERE id = $3""",
         bug_guard["id"], bug_guard["nombre_completo"], item_id
     )
 
     # 3. Notificar al Bug Guard
-    await kapso_service.enviar_texto_seguro(
-        bug_guard["whatsapp"],
-        f"🚨 *BUG CRITICO ASIGNADO*\n"
-        f"[{item_codigo}] {item_titulo}\n"
-        f"Tienes 1 hora para responder.\n"
-        f"Actualiza estado cuando empieces."
-    )
+    if bug_guard.get("whatsapp"):
+        try:
+            await kapso_service.enviar_texto_seguro(
+                bug_guard["whatsapp"],
+                f"🚨 *BUG CRITICO ASIGNADO*\n"
+                f"[{item_codigo}] {item_titulo}\n"
+                f"Tienes 1 hora para responder.\n"
+                f"Actualiza estado cuando empieces."
+            )
+        except Exception as e:
+            print(f"  ⚠ No se pudo notificar al Bug Guard: {e}")
 
     # 4. Notificar al PM
     if settings.WHATSAPP_PM:
-        await kapso_service.enviar_texto_seguro(
-            settings.WHATSAPP_PM,
-            f"🚨 [{item_codigo}] asignado a {bug_guard['nombre_completo']} (Bug Guard)\n"
-            f"{item_titulo}"
-        )
+        try:
+            await kapso_service.enviar_texto_seguro(
+                settings.WHATSAPP_PM,
+                f"🚨 [{item_codigo}] asignado a {bug_guard['nombre_completo']} (Bug Guard)\n"
+                f"{item_titulo}"
+            )
+        except Exception as e:
+            print(f"  ⚠ No se pudo notificar al PM: {e}")
 
     # 5. Log
     await conn.execute(

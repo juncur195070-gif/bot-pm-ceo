@@ -242,6 +242,20 @@ TOOL_GESTIONAR_DEV = {
 }
 
 
+TOOL_ACTUALIZAR_ESTADO_DEV = {
+    "name": "actualizar_estado_dev",
+    "description": "Cambia el estado de UNA de TUS tareas asignadas. Solo puedes cambiar tareas que te pertenecen.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "codigo_o_busqueda": {"type": "string", "description": "Titulo parcial o codigo BK-XXXX de tu tarea."},
+            "estado": {"type": "string", "enum": ["Backlog", "En Analisis", "En Desarrollo", "En QA", "Desplegado"], "description": "Nuevo estado"},
+            "notas_dev": {"type": "string", "description": "Nota opcional sobre el avance"}
+        },
+        "required": ["codigo_o_busqueda", "estado"]
+    }
+}
+
 TOOL_ADJUNTAR_IMAGEN = {
     "name": "adjuntar_imagen",
     "description": "Adjunta las imagenes recientes del usuario a un item del backlog. Usa cuando el usuario envia una imagen y quiere asociarla a un bug o tarea. Busca automaticamente imagenes enviadas en los ultimos 10 minutos.",
@@ -271,6 +285,7 @@ ALL_TOOLS = [
     TOOL_GESTIONAR_CLIENTE,
     TOOL_GESTIONAR_DEV,
     TOOL_ADJUNTAR_IMAGEN,
+    TOOL_ACTUALIZAR_ESTADO_DEV,
 ]
 
 # ── Tools filtrados por rol ──
@@ -286,7 +301,7 @@ TOOLS_POR_ROL = {
     ],
     "desarrollador": [
         "consultar_backlog", "consultar_item", "consultar_equipo",
-        "actualizar_item", "reportar_bloqueo",
+        "actualizar_estado_dev",
     ],
     "autorizado": [
         "crear_item",

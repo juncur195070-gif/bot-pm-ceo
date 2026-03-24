@@ -66,7 +66,6 @@ async def ejecutar_asignacion():
         )
 
         # Construir mapa de capacidad basado en HORAS
-        from app.config.settings import settings
         FACTOR_CARGA = {
             "Junior": settings.CARGA_JUNIOR,
             "Mid": settings.CARGA_MID,
@@ -141,15 +140,18 @@ async def ejecutar_asignacion():
         for a in asignaciones:
             await conn.execute(
                 """UPDATE backlog_items SET
-                    dev_id = $1, dev_nombre = $2, estado = 'En Analisis',
+                    dev_id = $1, dev_nombre = $2,
                     fecha_asignacion = NOW(), sprint_semana = $3
                    WHERE id = $4""",
                 a["dev_id"], a["dev_nombre"], semana, a["item_id"]
             )
             # Sync a Airtable
-            item_full = await conn.fetchrow("SELECT * FROM backlog_items WHERE id = $1", a["item_id"])
-            if item_full and item_full.get("airtable_record_id"):
-                await airtable_sync.sync_backlog_item(dict(item_full))
+            try:
+                item_full = await conn.fetchrow("SELECT * FROM backlog_items WHERE id = $1", a["item_id"])
+                if item_full:
+                    await airtable_sync.sync_backlog_item(dict(item_full))
+            except Exception as e:
+                print(f"  ⚠ Airtable sync fallo para {a['item_codigo']}: {e}")
 
         # ═══ PASO 5: NOTIFICAR DEVS ═══
         por_dev = {}
@@ -190,7 +192,7 @@ async def ejecutar_asignacion():
         await conn.execute(
             """INSERT INTO auditoria_log (origen, accion, detalle, resultado)
                VALUES ('asignacion', 'asignacion_realizada', $1, 'Exito')""",
-            f"{len(asignaciones)} asignaciones, Bug Guard: {bug_guard['nombre_completo'] if bug_guard else 'ninguno'}"
+            f"{len(asignaciones)} asignaciones, Bug Guard: {bug_guard.get('nombre_completo', '?') if bug_guard else 'ninguno'}"
         )
 
         print(f"   ✅ Asignacion completada: {len(asignaciones)} tareas asignadas")
@@ -235,7 +237,7 @@ async def _seleccionar_bug_guard(conn) -> dict | None:
                VALUES ($1, $2, $3, $4, $5)
                ON CONFLICT (semana_codigo) DO NOTHING""",
             semana, date.today(), dev["id"], dev["nombre_completo"],
-            int(dev["horas_semana_base"] * 0.6)
+            int(dev["horas_semana_base"] * settings.BUG_GUARD_RATIO)
         )
 
         # Notificar al Bug Guard
@@ -246,7 +248,7 @@ async def _seleccionar_bug_guard(conn) -> dict | None:
             f"• Bug Critico: responder en ≤ 1 hora\n"
             f"• Bug Importante: responder en ≤ 4 horas\n"
             f"• Solicitud Bloqueante: responder en ≤ 2 horas\n\n"
-            f"⏰ Reserva bugs: {int(dev['horas_semana_base'] * 0.6)}h | Sprint: {dev['horas_sprint_semana']}h"
+            f"⏰ Reserva bugs: {int(dev['horas_semana_base'] * settings.BUG_GUARD_RATIO)}h | Sprint: {dev['horas_sprint_semana']}h"
         )
         await kapso_service.enviar_texto_seguro(dev["whatsapp"], msg)
 

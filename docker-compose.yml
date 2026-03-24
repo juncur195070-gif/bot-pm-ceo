@@ -42,7 +42,8 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/doctoc_bot
       BOT_NAME: ${BOT_NAME:-Junior}
       SETUP: LOCAL
-      API_KEY_ADMIN: dev-api-key-123
+      API_KEY_ADMIN: ${API_KEY_ADMIN:-dev-api-key-local}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
       # Las demas variables se leen del archivo .env si existe
     # Lee variables adicionales del archivo .env (si existe)
     # Si no existe, las variables de 'environment' arriba son suficientes
@@ -53,6 +54,12 @@ services:
       - db                       # Espera a que PostgreSQL arranque primero
     volumes:
       - ./app:/code/app          # Hot reload: cambias codigo → se refleja sin rebuild
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
 # Volumen persistente para PostgreSQL
 # Tus datos sobreviven al reiniciar docker-compose

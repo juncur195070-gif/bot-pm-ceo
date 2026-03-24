@@ -74,7 +74,7 @@ class AirtableSyncService:
             fields["deadline_cliente"] = str(item["deadline_cliente"])
 
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
+            async with httpx.AsyncClient(timeout=settings.AIRTABLE_TIMEOUT) as client:
                 existing_id = item.get("airtable_record_id")
                 codigo = fields.get("codigo_backlog", "")
 
@@ -84,7 +84,7 @@ class AirtableSyncService:
                         f"{self.base_url}/BACKLOG_MAESTRO",
                         headers=self.headers,
                         params={
-                            "filterByFormula": f'{{codigo_backlog}}="{codigo}"',
+                            "filterByFormula": '{codigo_backlog}="' + codigo.replace('"', '\\"') + '"',
                             "maxRecords": 1
                         }
                     )

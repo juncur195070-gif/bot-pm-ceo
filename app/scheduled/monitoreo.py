@@ -41,7 +41,7 @@ async def ejecutar_monitoreo():
                ORDER BY bi.deadline_interno ASC"""
         )
         for r in rows:
-            dias = r["dias"]
+            dias = r["dias"] if r["dias"] is not None else 0
             emoji = "🚨" if dias <= 1 else "⚠️"
             alertas.append({
                 "tipo": "deadline",
@@ -75,7 +75,7 @@ async def ejecutar_monitoreo():
         for r in rows:
             alertas.append({
                 "tipo": "estancada",
-                "msg_pm": f"🔴 Estancada [{r['codigo']}] {r['titulo']}\n   {int(r['dias_dev'])} dias en desarrollo — {r['dev_nombre']}",
+                "msg_pm": f"🔴 Estancada [{r['codigo']}] {r['titulo']}\n   {int(r['dias_dev'] or 0)} dias en desarrollo — {r['dev_nombre']}",
                 "msg_dev": None, "dev_wa": None,
             })
 
@@ -90,7 +90,7 @@ async def ejecutar_monitoreo():
         for r in rows:
             alertas.append({
                 "tipo": "olvidado",
-                "msg_pm": f"📦 Olvidado [{r['codigo']}] {r['titulo']} — {int(r['dias'])} dias sin atender",
+                "msg_pm": f"📦 Olvidado [{r['codigo']}] {r['titulo']} — {int(r['dias'] or 0)} dias sin atender",
                 "msg_dev": None, "dev_wa": None,
             })
 

@@ -31,11 +31,21 @@ async def init_db() -> asyncpg.Pool:
     abiertas y listas para usar.
     """
     global _pool
-    _pool = await asyncpg.create_pool(
-        dsn=settings.DATABASE_URL,
-        min_size=settings.DB_POOL_MIN,
-        max_size=settings.DB_POOL_MAX,
-    )
+    try:
+        # statement_cache_size=0 requerido para Supabase (usa PgBouncer)
+        # Sin esto: "prepared statement already exists" error
+        _pool = await asyncpg.create_pool(
+            dsn=settings.DATABASE_URL,
+            min_size=settings.DB_POOL_MIN,
+            max_size=settings.DB_POOL_MAX,
+            statement_cache_size=0,
+        )
+        # Validar que la conexion funciona
+        async with _pool.acquire() as conn:
+            await conn.fetchval("SELECT 1")
+    except Exception as e:
+        print(f"  ❌ Error conectando a PostgreSQL: {e}")
+        raise
     return _pool
 
 

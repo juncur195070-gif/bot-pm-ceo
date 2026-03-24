@@ -3,6 +3,7 @@ Queries para la tabla BACKLOG_ITEMS — la tabla central del sistema.
 Todos los items de trabajo pasan por aqui.
 """
 
+import re
 import asyncpg
 from typing import Optional
 from uuid import UUID
@@ -41,11 +42,14 @@ async def listar_backlog(
 
     total = await conn.fetchval(f"SELECT COUNT(*) FROM backlog_items {where}", *params)
 
-    # Parsear sort
+    # Parsear sort con whitelist contra SQL injection
+    from app.config.settings import settings
     sort_field, sort_dir = "posicion_backlog", "ASC"
     if ":" in sort:
         parts = sort.split(":")
-        sort_field = parts[0]
+        candidate = parts[0]
+        if candidate in settings.ALLOWED_SORT_FIELDS:
+            sort_field = candidate
         sort_dir = "DESC" if parts[1].lower() == "desc" else "ASC"
 
     offset = (page - 1) * per_page
@@ -62,7 +66,6 @@ def _normalizar_codigo(texto: str) -> str:
     """
     Normaliza variantes de codigo: BK0002 → BK-0002, bk 0002 → BK-0002.
     """
-    import re
     # Detectar patron BK seguido de numeros (con o sin guion/espacio)
     match = re.match(r'[Bb][Kk][\s\-]?(\d+)', texto.strip())
     if match:
@@ -133,15 +136,17 @@ async def crear_item(conn: asyncpg.Connection, data: dict) -> dict:
 
     row = await conn.fetchrow(
         """INSERT INTO backlog_items (
-            titulo, tipo, descripcion, reportado_por_id,
+            titulo, tipo, estado, descripcion, reportado_por_id,
             cliente_id, cliente_nombre, cliente_mrr, cliente_tamano, cliente_sla_dias,
             es_lead, lead_id, urgencia_declarada,
             deadline_interno, fecha_qa_estimada, deadline_cliente,
             impacto_todos_usuarios, skill_requerido, esfuerzo_talla,
             adjuntos_urls, notas_pm
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
         RETURNING *""",
-        data.get("titulo"), data.get("tipo"), data.get("descripcion"),
+        data.get("titulo"), data.get("tipo"),
+        data.get("estado", "Backlog"),  # Siempre Backlog al crear
+        data.get("descripcion"),
         data.get("reportado_por_id"),
         data.get("cliente_id"), data.get("cliente_nombre"), float(data.get("cliente_mrr", 0) or 0),
         data.get("cliente_tamano"), data.get("cliente_sla_dias"),
@@ -159,9 +164,9 @@ async def crear_item(conn: asyncpg.Connection, data: dict) -> dict:
 
 async def actualizar_item(conn: asyncpg.Connection, codigo: str, data: dict) -> Optional[dict]:
     """Actualiza campos de un item. Convierte fechas string a date. Permite NULL explicito."""
-    from datetime import date as date_type
+    from datetime import date as date_type, datetime as datetime_type
     DATE_FIELDS = {"deadline_interno", "fecha_qa_estimada", "deadline_cliente"}
-    # Campos que PUEDEN ser NULL (para limpiar relaciones)
+    TIMESTAMP_FIELDS = {"fecha_asignacion", "fecha_inicio_desarrollo", "fecha_qa", "fecha_desplegado"}
     NULLABLE_FIELDS = {"cliente_id", "lead_id", "dev_id"}
 
     campos = {}
@@ -171,6 +176,11 @@ async def actualizar_item(conn: asyncpg.Connection, codigo: str, data: dict) -> 
         if k in DATE_FIELDS and isinstance(v, str):
             try:
                 campos[k] = date_type.fromisoformat(v)
+            except ValueError:
+                continue
+        elif k in TIMESTAMP_FIELDS and isinstance(v, str):
+            try:
+                campos[k] = datetime_type.fromisoformat(v)
             except ValueError:
                 continue
         else:

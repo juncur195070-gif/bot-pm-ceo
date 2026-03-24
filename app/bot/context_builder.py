@@ -17,6 +17,7 @@ import pytz
 
 from app.prompts.system_prompts import PROMPT_GENERATORS
 from app.tools.definitions import get_tools_por_rol
+from app.utils.phone import extraer_digitos
 
 LIMA_TZ = pytz.timezone("America/Lima")
 
@@ -24,14 +25,48 @@ LIMA_TZ = pytz.timezone("America/Lima")
 async def identificar_usuario(conn: asyncpg.Connection, whatsapp: str) -> dict | None:
     """
     Busca al usuario por numero de WhatsApp.
-    Retorna sus datos o None si no esta autorizado.
+
+    Flujo:
+      1. Buscar en usuarios_autorizados (PM, CEO, autorizados)
+      2. Si no esta ahi, buscar en desarrolladores por whatsapp
+         → entra automaticamente con rol 'desarrollador'
+
+    Retorna sus datos o None si no esta en ninguna tabla.
     """
+    # Extraer ultimos 9 digitos para busqueda tolerante
+    digitos = extraer_digitos(whatsapp)
+
+    # 1. Buscar en usuarios_autorizados (match exacto o por ultimos 9 digitos)
     row = await conn.fetchrow(
         """SELECT * FROM usuarios_autorizados
-           WHERE whatsapp = $1 AND activo = TRUE""",
-        whatsapp
+           WHERE activo = TRUE
+           AND (whatsapp = $1 OR RIGHT(REGEXP_REPLACE(whatsapp, '[^0-9]', '', 'g'), 9) = $2)""",
+        whatsapp, digitos
     )
-    return dict(row) if row else None
+    if row:
+        return dict(row)
+
+    # 2. Si no esta, buscar en desarrolladores (numero solo vive ahi)
+    dev = await conn.fetchrow(
+        """SELECT * FROM desarrolladores
+           WHERE disponible = TRUE
+           AND (whatsapp = $1 OR RIGHT(REGEXP_REPLACE(whatsapp, '[^0-9]', '', 'g'), 9) = $2)""",
+        whatsapp, digitos
+    )
+    if dev:
+        print(f"  🔧 Dev {dev['nombre_completo']} autenticado via desarrolladores")
+        return {
+            "id": dev["id"],
+            "whatsapp": dev["whatsapp"],
+            "nombre": dev["nombre_completo"],
+            "rol": "desarrollador",
+            "desarrollador_id": dev["id"],
+            "activo": True,
+            "puede_reportar": True,
+            "puede_gestionar": False,
+        }
+
+    return None
 
 
 async def cargar_historial(conn: asyncpg.Connection, whatsapp: str, limite: int = 6) -> list[dict]:

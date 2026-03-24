@@ -63,7 +63,7 @@ async def ejecutar_loop(
         if resultado["error"]:
             error_msg = resultado["error"].lower()
             if "rate limit" in error_msg:
-                respuesta_error = "Estoy procesando muchos mensajes. Espera 30 segundos e intenta de nuevo."
+                respuesta_error = "Estoy procesando muchos mensajes. Espera unos segundos e intenta de nuevo."
             else:
                 respuesta_error = "Tuve un problema procesando tu mensaje. Intenta de nuevo."
             return {
@@ -96,10 +96,20 @@ async def ejecutar_loop(
 
                 print(f"  ✅ Resultado: {result[:200]}...")
 
+                # Detectar si el tool fallo via JSON parse (robusto)
+                is_error = False
+                try:
+                    import json
+                    parsed = json.loads(result)
+                    is_error = parsed.get("ok") is False
+                except (json.JSONDecodeError, AttributeError):
+                    is_error = result.startswith("Error")
+
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": tool_call.id,
                     "content": result,
+                    "is_error": is_error,
                 })
 
             # Agregar resultados de tools a messages (para que Claude los lea)
