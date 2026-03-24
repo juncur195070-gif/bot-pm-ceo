@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS clientes (
     contacto_email      VARCHAR(200),
     fecha_inicio_contrato DATE,
     fecha_renovacion    DATE,
+    renovacion_estado   VARCHAR(20) DEFAULT 'pendiente'
+                            CHECK (renovacion_estado IN ('pendiente','contactado','renovado','perdido')),
+    renovacion_notas    TEXT,
     fecha_ultimo_item_resuelto TIMESTAMPTZ,
     notas_comerciales   TEXT,
     airtable_record_id  VARCHAR(30),

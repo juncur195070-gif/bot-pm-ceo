@@ -148,6 +148,39 @@ async def construir_contexto(
     # Reemplazar placeholder de fecha
     prompt = prompt.replace("{{fecha_actual}}", fecha_actual)
 
+    # 4b. Inyectar alertas de renovacion para PM y CEO
+    if usuario["rol"] in ("pm", "ceo"):
+        try:
+            renovaciones = await conn.fetch(
+                """SELECT codigo, nombre_clinica, mrr_mensual,
+                          fecha_renovacion, fecha_renovacion - CURRENT_DATE as dias,
+                          COALESCE(renovacion_estado, 'pendiente') as renovacion_estado
+                   FROM clientes
+                   WHERE fecha_renovacion IS NOT NULL
+                   AND fecha_renovacion <= CURRENT_DATE + 14
+                   AND estado_cliente = 'Activo'
+                   AND COALESCE(renovacion_estado, 'pendiente') NOT IN ('renovado', 'perdido')
+                   ORDER BY fecha_renovacion ASC
+                   LIMIT 5"""
+            )
+            if renovaciones:
+                alertas_ren = []
+                for r in renovaciones:
+                    dias = r["dias"] if r["dias"] is not None else 0
+                    estado = r["renovacion_estado"]
+                    mrr = float(r["mrr_mensual"] or 0)
+                    if dias < 0:
+                        alertas_ren.append(f"🚨 {r['nombre_clinica']} VENCIDA hace {abs(dias)}d (S/{mrr:.0f})")
+                    elif dias <= 3:
+                        alertas_ren.append(f"🚨 {r['nombre_clinica']} vence en {dias}d (S/{mrr:.0f})")
+                    else:
+                        contactado = " ✓contactado" if estado == "contactado" else ""
+                        alertas_ren.append(f"⚠️ {r['nombre_clinica']} vence en {dias}d (S/{mrr:.0f}){contactado}")
+                prompt += "\n\nRENOVACIONES PROXIMAS (menciona al inicio si no han sido contactadas):\n" + "\n".join(alertas_ren)
+                prompt += "\nSi el usuario confirma que ya contacto a un cliente, usa gestionar_cliente con accion='actualizar' y renovacion_estado='contactado'. Si confirma que renovo, pon 'renovado'."
+        except Exception as e:
+            print(f"  ⚠ Error cargando renovaciones: {e}")
+
     # 5. Obtener tools permitidos para el rol
     tools = get_tools_por_rol(usuario["rol"])
 
