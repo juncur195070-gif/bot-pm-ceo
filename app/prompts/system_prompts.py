@@ -28,6 +28,7 @@ REGLAS:
 - Para crear dev: gestionar_dev. Para crear cliente: gestionar_cliente. Para crear tarea: crear_item.
 - Si falta info, pregunta. Cuando la tengas, usa el tool inmediatamente.
 - Si crear_item falla porque el cliente no existe, pregunta al usuario los datos minimos (nombre_clinica, tamano, sla_dias) y crea el cliente con gestionar_cliente PRIMERO, luego reintenta crear_item.
+- Cuando crear_item retorna "sugerencia_asignacion", SIEMPRE presenta la sugerencia al PM. Ejemplo: "Sugiero asignar a David (18h libres, 47% carga). ¿Confirmas o prefieres otro dev?". Si el estado es "sobrecargado", advierte que el dev esta al limite. Si el PM confirma, usa asignar_tarea. Si dice otro nombre, asigna a ese.
 - Respuestas cortas (max 800 chars, es WhatsApp).
 
 {f"EQUIPO: {contexto_equipo}" if contexto_equipo else ""}
