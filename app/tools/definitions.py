@@ -127,13 +127,14 @@ TOOL_ACTUALIZAR_ITEM = {
 
 TOOL_ASIGNAR_TAREA = {
     "name": "asignar_tarea",
-    "description": "Asigna o reasigna un item a un dev. NUNCA pidas el codigo al usuario — usa el titulo, cliente o descripcion para buscar. Ejemplo: 'lo de MINSUR', 'el bug de farmacia', 'la tarea de reportes'.",
+    "description": "Asigna, reasigna o DESASIGNA un item. Para desasignar usa desasignar=true (quita dev y vuelve a Backlog). NUNCA pidas el codigo al usuario.",
     "input_schema": {
         "type": "object",
         "properties": {
             "codigo_o_busqueda": {"type": "string", "description": "Texto libre para buscar el item: titulo parcial, nombre del cliente, o codigo BK-XXXX si ya lo sabes del contexto. NUNCA pidas el codigo al usuario."},
             "dev_nombre": {"type": "string", "description": "Nombre del dev (parcial OK: 'Carlos', 'David'). Si no se especifica, usa auto=true"},
-            "auto": {"type": "boolean", "description": "Auto-seleccionar el mejor dev disponible por horas y skills", "default": False}
+            "auto": {"type": "boolean", "description": "Auto-seleccionar el mejor dev disponible por horas y skills", "default": False},
+            "desasignar": {"type": "boolean", "description": "true para quitar la asignacion actual y devolver a Backlog"}
         },
         "required": ["codigo_o_busqueda"]
     }

@@ -546,7 +546,7 @@ async def _actualizar_item(conn, params, usuario) -> str:
 
 
 async def _asignar_tarea(conn, params) -> str:
-    """Asigna un item a un dev con verificacion."""
+    """Asigna o desasigna un item a un dev con verificacion."""
     codigo, err = await _resolver_codigo(conn, params["codigo_o_busqueda"])
     if err:
         return _fail(err)
@@ -554,6 +554,23 @@ async def _asignar_tarea(conn, params) -> str:
     item = await q_backlog.obtener_item(conn, codigo)
     if not item:
         return _fail(f"Item {codigo} no encontrado")
+
+    # Desasignar: quitar dev y volver a Backlog
+    if params.get("desasignar"):
+        dev_anterior = item.get("dev_nombre") or "nadie"
+        await conn.execute(
+            """UPDATE backlog_items SET
+                dev_id = NULL, dev_nombre = NULL,
+                estado = 'Backlog', fecha_asignacion = NULL
+               WHERE codigo = $1""",
+            codigo
+        )
+        verificado = await q_backlog.obtener_item(conn, codigo)
+        if verificado and verificado.get("dev_id") is None:
+            await _sync_item_airtable(conn, codigo)
+            return _ok({"message": f"{codigo} desasignado de {dev_anterior} y devuelto a Backlog", "codigo": codigo, "item": verificado})
+        return _fail(f"No se pudo desasignar {codigo}")
+
     skills_req = item.get("skill_requerido", [])
     horas_item = item.get("horas_esfuerzo") or 4
 
