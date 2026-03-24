@@ -94,6 +94,43 @@ async def ejecutar_monitoreo():
                 "msg_dev": None, "dev_wa": None,
             })
 
+        # 5. Renovaciones proximas (clientes con fecha_renovacion)
+        rows = await conn.fetch(
+            """SELECT codigo, nombre_clinica, mrr_mensual, tamano,
+                      fecha_renovacion, fecha_renovacion - CURRENT_DATE as dias,
+                      COALESCE(renovacion_estado, 'pendiente') as renovacion_estado
+               FROM clientes
+               WHERE fecha_renovacion IS NOT NULL
+               AND fecha_renovacion <= CURRENT_DATE + 30
+               AND estado_cliente = 'Activo'
+               AND COALESCE(renovacion_estado, 'pendiente') NOT IN ('renovado', 'perdido')
+               ORDER BY fecha_renovacion ASC"""
+        )
+        for r in rows:
+            dias = r["dias"] if r["dias"] is not None else 0
+            estado_ren = r["renovacion_estado"]
+            mrr = float(r["mrr_mensual"] or 0)
+
+            if dias < 0:
+                emoji = "🚨"
+                texto = f"VENCIDA hace {abs(dias)} dia(s)"
+            elif dias <= 3:
+                emoji = "🚨"
+                texto = f"en {dias} dia(s)"
+            elif dias <= 7:
+                emoji = "⚠️"
+                texto = f"en {dias} dia(s)"
+            else:
+                emoji = "📋"
+                texto = f"en {dias} dia(s)"
+
+            estado_txt = " (ya contactado)" if estado_ren == "contactado" else ""
+            alertas.append({
+                "tipo": "renovacion",
+                "msg_pm": f"{emoji} *Renovacion {texto}*: {r['nombre_clinica']} [{r['codigo']}]\n   MRR: S/{mrr:.0f} | {r['tamano']}{estado_txt}",
+                "msg_dev": None, "dev_wa": None,
+            })
+
         # Enviar alertas
         if not alertas:
             print("   ✅ Sin alertas hoy")

@@ -213,6 +213,8 @@ TOOL_GESTIONAR_CLIENTE = {
             "contacto_whatsapp": {"type": "string"},
             "contacto_email": {"type": "string"},
             "fecha_renovacion": {"type": "string", "description": "YYYY-MM-DD"},
+            "renovacion_estado": {"type": "string", "enum": ["pendiente","contactado","renovado","perdido"], "description": "Estado del seguimiento de renovacion"},
+            "renovacion_notas": {"type": "string", "description": "Notas sobre el seguimiento de renovacion"},
             "probabilidad_cierre": {"type": "number", "description": "0-100, solo para leads"},
             "notas": {"type": "string", "description": "Se guarda como notas_comerciales"}
         },
