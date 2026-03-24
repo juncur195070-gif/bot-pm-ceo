@@ -45,13 +45,14 @@ def _calcular_score(item: dict, cliente_data: dict | None = None) -> dict:
     # ¿Cuanto perdemos si este cliente se va?
     # ══════════════════════════════════════════════════
 
-    # A1: Score por MRR (ingreso mensual)
+    # A1: Score por MRR (ingreso mensual en soles)
+    # Rangos basados en distribucion real: mayoria 139, max corpo 60K
     mrr = float(cli.get("mrr_mensual") or item.get("cliente_mrr") or 0)
-    a_mrr = 10 if mrr > 8000 else 7 if mrr > 4000 else 4 if mrr > 1500 else 1
+    a_mrr = 10 if mrr > 10000 else 8 if mrr > 3000 else 6 if mrr > 1000 else 5 if mrr > 500 else 3 if mrr > 100 else 2 if mrr > 0 else 1
 
-    # A1b: Score por ARR (ingreso anual — pesa mas que MRR)
+    # A1b: Score por ARR (ingreso anual en soles — pesa mas que MRR)
     arr = float(cli.get("arr_calculado") or mrr * 12)
-    a_arr = 10 if arr > 100000 else 7 if arr > 50000 else 4 if arr > 20000 else 1
+    a_arr = 10 if arr > 120000 else 8 if arr > 36000 else 6 if arr > 12000 else 5 if arr > 6000 else 3 if arr > 1200 else 2 if arr > 0 else 1
 
     # A1 compuesto: ARR pesa 60%, MRR pesa 40%
     a1 = (a_mrr * 0.40) + (a_arr * 0.60)

@@ -184,11 +184,12 @@ TOOL_DERIVAR_A_PERSONA = {
 
 TOOL_REASIGNAR_BUG_GUARD = {
     "name": "reasignar_bug_guard",
-    "description": "Cambia el Bug Guard de la semana. Solo PM puede ejecutar.",
+    "description": "Cambia el Bug Guard. Quita al anterior y asigna al nuevo. Muestra quien sigue en rotacion. Solo PM puede ejecutar.",
     "input_schema": {
         "type": "object",
         "properties": {
-            "dev_nombre": {"type": "string", "description": "Nuevo Bug Guard (si no, auto-selecciona)"}
+            "dev_nombre": {"type": "string", "description": "Nombre del nuevo Bug Guard (ej: 'David')"},
+            "siguiente": {"type": "boolean", "description": "true para auto-seleccionar al siguiente en rotacion (el que tiene menos semanas)"}
         }
     }
 }
