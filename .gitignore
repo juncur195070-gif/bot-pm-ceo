@@ -1,0 +1,34 @@
+# Entorno virtual de Python (libreriass instaladas localmente)
+venv/
+.venv/
+
+# Variables de entorno (SECRETOS — nunca subir)
+.env
+
+# Cache de Python (archivos compilados, no necesarios)
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+
+# Docker volumenes locales
+pgdata/
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Archivos temporales de desarrollo
+z.py
+zz.py

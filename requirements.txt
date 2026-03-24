@@ -1,0 +1,32 @@
+# Framework web — recibe webhooks y sirve la API REST
+fastapi==0.115.6
+uvicorn==0.32.1
+
+# Base de datos — conecta a PostgreSQL de forma asincrona (rapida)
+asyncpg==0.30.0
+
+# Validacion de datos — define la estructura de los datos (schemas)
+pydantic==2.10.3
+pydantic-settings==2.7.1
+
+# IA — Claude API para el bot conversacional
+anthropic==0.43.0
+
+# HTTP client — para llamar a Kapso, Airtable, etc.
+httpx==0.28.1
+
+# Tareas programadas — scoring nocturno, asignacion lunes, alertas
+apscheduler==3.10.4
+
+# Variables de entorno — lee el archivo .env
+python-dotenv==1.0.1
+
+# Observabilidad — logs y monitoreo
+logfire==3.5.3
+
+# Utilidades
+pytz==2024.2
+
+# Testing
+pytest==8.3.4
+pytest-asyncio==0.24.0

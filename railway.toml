@@ -1,0 +1,11 @@
+# Railway lee este archivo para configurar el deploy
+# Docs: https://docs.railway.app/reference/config-as-code
+
+[build]
+builder = "DOCKERFILE"           # Usar nuestro Dockerfile para construir
+dockerfilePath = "Dockerfile"    # Ruta al Dockerfile
+
+[deploy]
+healthcheckPath = "/health"      # Railway verifica que la app este viva
+healthcheckTimeout = 30          # Segundos para esperar respuesta
+restartPolicyType = "ON_FAILURE" # Reiniciar solo si crashea

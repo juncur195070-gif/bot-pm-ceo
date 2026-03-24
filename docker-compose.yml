@@ -1,0 +1,60 @@
+# docker-compose.yml
+# Levanta PostgreSQL + FastAPI app con UN comando: docker-compose up
+
+services:
+
+  # ── Base de datos PostgreSQL ──
+  # Se crea automaticamente al hacer docker-compose up
+  # Los datos persisten en el volumen pgdata (no se pierden al reiniciar)
+  db:
+    image: postgres:15           # Imagen oficial de PostgreSQL 15
+    ports:
+      - "5432:5432"              # Accesible desde tu Mac en localhost:5432
+    environment:
+      POSTGRES_DB: doctoc_bot    # Nombre de la base de datos
+      POSTGRES_USER: postgres    # Usuario
+      POSTGRES_PASSWORD: postgres # Password (solo para desarrollo local)
+    volumes:
+      - pgdata:/var/lib/postgresql/data                    # Persistir datos
+      - ./app/db/migrations:/docker-entrypoint-initdb.d    # Ejecutar SQL al crear
+
+  # ── pgAdmin — Interfaz web para ver la base de datos ──
+  # Accede en: http://localhost:5050
+  # Login: admin@doctoc.com / admin
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    ports:
+      - "5050:80"                # Accesible en http://localhost:5050
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@doctoc.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: "False"  # Modo desktop (sin login extra)
+    depends_on:
+      - db
+
+  # ── Aplicacion FastAPI ──
+  # Se construye desde el Dockerfile
+  app:
+    build: .                     # Construir desde el Dockerfile en este directorio
+    ports:
+      - "8000:8000"              # Accesible en http://localhost:8000
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/doctoc_bot
+      BOT_NAME: ${BOT_NAME:-Junior}
+      SETUP: LOCAL
+      API_KEY_ADMIN: dev-api-key-123
+      # Las demas variables se leen del archivo .env si existe
+    # Lee variables adicionales del archivo .env (si existe)
+    # Si no existe, las variables de 'environment' arriba son suficientes
+    env_file:
+      - path: .env
+        required: false          # No falla si .env no existe
+    depends_on:
+      - db                       # Espera a que PostgreSQL arranque primero
+    volumes:
+      - ./app:/code/app          # Hot reload: cambias codigo → se refleja sin rebuild
+
+# Volumen persistente para PostgreSQL
+# Tus datos sobreviven al reiniciar docker-compose
+volumes:
+  pgdata:
