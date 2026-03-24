@@ -13,6 +13,7 @@ from app.services.kapso import kapso_service
 from app.bot.context_builder import construir_contexto, identificar_usuario
 from app.bot.agent_loop import ejecutar_loop
 from app.db.queries import auditoria as q_audit
+from app.utils.phone import normalizar as normalizar_telefono
 
 
 async def procesar_mensaje(payload: dict, idempotency_key: str):
@@ -36,12 +37,12 @@ async def procesar_mensaje(payload: dict, idempotency_key: str):
                 msg_data = kapso_service.extraer_mensaje(payload)
                 error_msg = str(e).lower()
                 if "rate limit" in error_msg:
-                    texto_error = "Estoy procesando muchos mensajes. Espera 30 segundos e intenta de nuevo."
+                    texto_error = "Estoy procesando muchos mensajes. Espera unos segundos e intenta de nuevo."
                 else:
                     texto_error = "Tuve un error procesando tu mensaje. Intenta de nuevo."
                 await kapso_service.enviar_texto_seguro(msg_data["from"], texto_error)
-            except Exception:
-                pass
+            except Exception as notify_err:
+                print(f"  ⚠ No se pudo notificar error al usuario: {notify_err}")
 
             # Registrar error en auditoria
             await q_audit.registrar_accion(
@@ -59,7 +60,7 @@ async def _procesar(conn: asyncpg.Connection, payload: dict, idempotency_key: st
 
     # ── 1. Extraer datos del mensaje ──
     msg = kapso_service.extraer_mensaje(payload)
-    whatsapp = f"+{msg['from']}" if not msg["from"].startswith("+") else msg["from"]
+    whatsapp = normalizar_telefono(msg["from"])
     contenido = msg["contenido"]
     tipo_contenido = msg["type"]
     media_url = msg.get("media_url")
@@ -105,11 +106,17 @@ async def _procesar(conn: asyncpg.Connection, payload: dict, idempotency_key: st
     print(f"  👤 Usuario: {usuario['nombre']} ({usuario['rol']})")
 
     # ── 4. Guardar mensaje entrante ──
+    # Para devs autenticados via desarrolladores, usuario_id no existe en usuarios_autorizados
+    # Usamos NULL en ese caso — whatsapp identifica al usuario
+    usuario_id_fk = None
+    if usuario.get("rol") != "desarrollador":
+        usuario_id_fk = usuario["id"]
+
     await conn.execute(
         """INSERT INTO mensajes_conversacion
            (usuario_id, whatsapp, direccion, contenido, tipo_contenido, media_url, kapso_message_id)
            VALUES ($1, $2, 'entrante', $3, $4, $5, $6)""",
-        usuario["id"], whatsapp, contenido, tipo_contenido, media_url, msg.get("message_id")
+        usuario_id_fk, whatsapp, contenido, tipo_contenido, media_url, msg.get("message_id")
     )
 
     # ── 4b. Si es imagen, guardar la URL para que los tools la usen ──
@@ -211,7 +218,7 @@ async def _procesar(conn: asyncpg.Connection, payload: dict, idempotency_key: st
         """INSERT INTO mensajes_conversacion
            (usuario_id, whatsapp, direccion, contenido, tipo_contenido, tools_usados)
            VALUES ($1, $2, 'saliente', $3, 'texto', $4)""",
-        usuario["id"], whatsapp, respuesta, resultado["tools_usados"]
+        usuario_id_fk, whatsapp, respuesta, resultado["tools_usados"]
     )
 
     # ── 8. Enviar respuesta por WhatsApp (PRIMERO — antes del sync) ──
@@ -222,8 +229,8 @@ async def _procesar(conn: asyncpg.Connection, payload: dict, idempotency_key: st
         conn,
         origen="bot",
         accion="mensaje_procesado",
-        usuario_id=usuario["id"],
-        detalle=f"Tipo: {tipo_contenido}, Tools: {resultado['tools_usados']}, Iter: {resultado['iteraciones']}",
+        usuario_id=usuario_id_fk,
+        detalle=f"Tipo: {tipo_contenido}, Tools: {resultado['tools_usados']}, Iter: {resultado['iteraciones']}, Dev: {usuario['nombre']}",
         metadata={
             "modelo": resultado["modelo_usado"],
             "tools": resultado["tools_usados"],

@@ -10,6 +10,7 @@ Uso en las rutas:
         ...
 """
 
+import hmac
 from fastapi import HTTPException, Security
 from fastapi.security import APIKeyHeader
 from app.config.settings import settings
@@ -28,7 +29,7 @@ async def verificar_api_key(api_key: str = Security(api_key_header)):
             status_code=401,
             detail="Falta header X-API-Key"
         )
-    if api_key != settings.API_KEY_ADMIN:
+    if not hmac.compare_digest(api_key, settings.API_KEY_ADMIN):
         raise HTTPException(
             status_code=401,
             detail="API Key invalida"

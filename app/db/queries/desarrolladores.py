@@ -6,6 +6,7 @@ Incluye funciones de capacidad y Bug Guard.
 import asyncpg
 from typing import Optional
 from uuid import UUID
+from app.utils.phone import normalizar as normalizar_telefono
 
 
 async def listar_devs(
@@ -75,6 +76,8 @@ async def crear_dev(conn: asyncpg.Connection, data: dict) -> dict:
     if not horas:
         horas = 40  # Default full time
 
+    wa = normalizar_telefono(data.get("whatsapp", ""))
+
     row = await conn.fetchrow(
         """INSERT INTO desarrolladores (
             nombre_completo, nivel, horas_semana_base,
@@ -83,7 +86,7 @@ async def crear_dev(conn: asyncpg.Connection, data: dict) -> dict:
         RETURNING *""",
         data["nombre_completo"], data["nivel"],
         horas, data.get("skills", []),
-        data.get("whatsapp"), data.get("email"), data.get("notas")
+        wa or None, data.get("email"), data.get("notas")
     )
     return dict(row)
 
@@ -97,7 +100,9 @@ async def actualizar_dev(conn: asyncpg.Connection, codigo: str, data: dict) -> O
     for k, v in data.items():
         if v is None:
             continue
-        if k in DATE_FIELDS and isinstance(v, str):
+        if k == "whatsapp" and isinstance(v, str):
+            campos[k] = normalizar_telefono(v)
+        elif k in DATE_FIELDS and isinstance(v, str):
             try:
                 campos[k] = date_type.fromisoformat(v)
             except ValueError:

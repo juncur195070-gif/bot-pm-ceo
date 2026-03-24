@@ -6,7 +6,6 @@ GET /api/v1/auditoria            → Historial de acciones
 
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
-from uuid import UUID
 import asyncpg
 
 from app.api.dependencies import get_db_conn

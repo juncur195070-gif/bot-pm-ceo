@@ -22,7 +22,7 @@ class KapsoService:
         self.api_key = settings.KAPSO_API_KEY
         self.phone_number_id = settings.KAPSO_PHONE_NUMBER_ID
         self.webhook_secret = settings.KAPSO_WEBHOOK_SECRET
-        self.base_url = f"https://api.kapso.ai/meta/whatsapp/v24.0/{self.phone_number_id}"
+        self.base_url = f"https://api.kapso.ai/meta/whatsapp/{settings.KAPSO_API_VERSION}/{self.phone_number_id}"
 
     # ── RECIBIR ──
 
@@ -141,7 +141,7 @@ class KapsoService:
         # Limpiar numero: quitar '+' si lo tiene
         to_clean = to.replace("+", "")
 
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=settings.KAPSO_TIMEOUT) as client:
             resp = await client.post(
                 f"{self.base_url}/messages",
                 headers={
@@ -155,6 +155,8 @@ class KapsoService:
                     "text": {"body": mensaje}
                 }
             )
+            if resp.status_code >= 400:
+                print(f"  ⚠ Kapso API error: {resp.status_code} {resp.text[:200]}")
             return resp.json()
 
     async def enviar_texto_seguro(self, to: str, mensaje: str) -> dict | None:
