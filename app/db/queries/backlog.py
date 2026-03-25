@@ -83,10 +83,16 @@ async def obtener_item(conn: asyncpg.Connection, codigo: str) -> Optional[dict]:
 
 async def buscar_items(conn: asyncpg.Connection, texto: str, limite: int = 5) -> list[dict]:
     """
-    Busca items por texto con multiples estrategias:
-    1. Busqueda exacta con el texto completo
-    2. Si no encuentra, intenta con cada palabra significativa (>3 chars)
+    Busca items por texto con ranking por relevancia:
+    1. Busqueda exacta con texto completo
+    2. Si no, busca por palabras y rankea por cantidad de coincidencias
     """
+    stopwords = {
+        "tarea", "lead", "cliente", "urgencia", "estado", "cambiar", "asignar",
+        "crear", "para", "como", "esta", "este", "esos", "esas", "tiene",
+        "bugs", "item", "cosa", "algo", "todo", "todos", "quiero", "dame",
+    }
+
     # 1. Busqueda con texto completo (unaccent para tolerar tildes)
     query = """SELECT * FROM backlog_items
            WHERE (
@@ -104,17 +110,31 @@ async def buscar_items(conn: asyncpg.Connection, texto: str, limite: int = 5) ->
     if rows:
         return [dict(r) for r in rows]
 
-    # 2. Si no encuentra, buscar con cada palabra significativa
-    palabras = [p for p in texto.split() if len(p) > 3 and p.lower() not in (
-        "tarea", "lead", "cliente", "urgencia", "estado", "cambiar", "asignar",
-        "crear", "para", "como", "esta", "este", "esos", "esas", "tiene"
-    )]
-    for palabra in palabras:
-        rows = await conn.fetch(query, f"%{palabra}%", limite)
-        if rows:
-            return [dict(r) for r in rows]
+    # 2. Buscar por palabras significativas y rankear por coincidencias
+    palabras = [p.lower() for p in texto.split() if len(p) > 2 and p.lower() not in stopwords]
+    if not palabras:
+        return []
 
-    return []
+    # Buscar todos los items activos
+    todos = await conn.fetch(
+        """SELECT * FROM backlog_items
+           WHERE estado NOT IN ('Desplegado','Cancelado','Archivado')
+           ORDER BY posicion_backlog ASC"""
+    )
+
+    # Rankear por cantidad de palabras que coinciden en titulo+descripcion+cliente
+    scored = []
+    for r in todos:
+        r = dict(r)
+        texto_item = f"{r.get('titulo','')} {r.get('descripcion','')} {r.get('cliente_nombre','')} {r.get('dev_nombre','')} {r.get('tipo','')}".lower()
+        # Contar cuantas palabras de busqueda aparecen
+        matches = sum(1 for p in palabras if p in texto_item)
+        if matches > 0:
+            scored.append((matches, r))
+
+    # Ordenar por mas coincidencias primero
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [r for _, r in scored[:limite]]
 
 
 async def crear_item(conn: asyncpg.Connection, data: dict) -> dict:

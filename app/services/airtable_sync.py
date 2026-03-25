@@ -135,6 +135,25 @@ class AirtableSyncService:
             print(f"  ⚠ Airtable sync failed: {e}")
             return None
 
+    async def delete_record(self, record_id: str) -> bool:
+        """Elimina un registro de Airtable por su record_id."""
+        if not self.enabled or not record_id:
+            return False
+        try:
+            async with httpx.AsyncClient(timeout=settings.AIRTABLE_TIMEOUT) as client:
+                resp = await client.delete(
+                    f"{self.base_url}/BACKLOG_MAESTRO/{record_id}",
+                    headers=self.headers
+                )
+                if resp.status_code == 200:
+                    print(f"  🗑 Airtable: registro {record_id} eliminado")
+                    return True
+                print(f"  ⚠ Airtable delete error: {resp.status_code}")
+                return False
+        except Exception as e:
+            print(f"  ⚠ Airtable delete failed: {e}")
+            return False
+
 
 # Instancia global
 airtable_sync = AirtableSyncService()
