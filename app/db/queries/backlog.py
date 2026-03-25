@@ -87,15 +87,15 @@ async def buscar_items(conn: asyncpg.Connection, texto: str, limite: int = 5) ->
     1. Busqueda exacta con el texto completo
     2. Si no encuentra, intenta con cada palabra significativa (>3 chars)
     """
-    # 1. Busqueda con texto completo
+    # 1. Busqueda con texto completo (unaccent para tolerar tildes)
     query = """SELECT * FROM backlog_items
            WHERE (
-               LOWER(titulo) LIKE LOWER($1)
-               OR LOWER(descripcion) LIKE LOWER($1)
-               OR LOWER(cliente_nombre) LIKE LOWER($1)
+               unaccent(LOWER(titulo)) LIKE unaccent(LOWER($1))
+               OR unaccent(LOWER(descripcion)) LIKE unaccent(LOWER($1))
+               OR unaccent(LOWER(cliente_nombre)) LIKE unaccent(LOWER($1))
                OR LOWER(codigo) LIKE LOWER($1)
-               OR LOWER(dev_nombre) LIKE LOWER($1)
-               OR LOWER(tipo) LIKE LOWER($1)
+               OR unaccent(LOWER(dev_nombre)) LIKE unaccent(LOWER($1))
+               OR unaccent(LOWER(tipo)) LIKE unaccent(LOWER($1))
            )
            AND estado NOT IN ('Desplegado','Cancelado','Archivado')
            ORDER BY posicion_backlog ASC LIMIT $2"""

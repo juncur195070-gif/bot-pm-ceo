@@ -35,8 +35,10 @@ async def obtener_dev_por_id(conn: asyncpg.Connection, id: UUID) -> Optional[dic
 async def buscar_dev_por_nombre(conn: asyncpg.Connection, nombre: str) -> Optional[dict]:
     """
     Busca dev por nombre con tolerancia a errores de audio.
-    "Carlos" matchea con "Carlos Ramirez", "karl" matchea parcialmente.
+    "Carlos" matchea con "Carlos Ramirez", "Davit" matchea con "David".
+    Usa pg_trgm (trigramas) si esta disponible, sino fallback Python.
     """
+    # 1. Match exacto parcial (rapido)
     row = await conn.fetchrow(
         "SELECT * FROM desarrolladores WHERE LOWER(nombre_completo) LIKE LOWER($1) LIMIT 1",
         f"%{nombre}%"
@@ -44,19 +46,32 @@ async def buscar_dev_por_nombre(conn: asyncpg.Connection, nombre: str) -> Option
     if row:
         return dict(row)
 
-    # Fuzzy match para errores de audio
-    rows = await conn.fetch("SELECT * FROM desarrolladores ORDER BY nombre_completo")
-    nombre_lower = nombre.lower()
-    for r in rows:
-        campo = r["nombre_completo"].lower()
-        if len(nombre_lower) == len(campo):
-            diffs = sum(1 for a, b in zip(nombre_lower, campo) if a != b)
-            if diffs <= 2:
+    # 2. Fuzzy match con pg_trgm (todo en PostgreSQL, sin cargar a memoria)
+    try:
+        row = await conn.fetchrow(
+            """SELECT *, similarity(LOWER(nombre_completo), LOWER($1)) as sim
+               FROM desarrolladores
+               WHERE similarity(LOWER(nombre_completo), LOWER($1)) > 0.25
+               ORDER BY similarity(LOWER(nombre_completo), LOWER($1)) DESC
+               LIMIT 1""",
+            nombre
+        )
+        if row:
+            return dict(row)
+    except Exception:
+        # pg_trgm no disponible — fallback a comparacion Python
+        rows = await conn.fetch("SELECT * FROM desarrolladores ORDER BY nombre_completo")
+        nombre_lower = nombre.lower()
+        for r in rows:
+            campo = r["nombre_completo"].lower()
+            if len(nombre_lower) == len(campo):
+                diffs = sum(1 for a, b in zip(nombre_lower, campo) if a != b)
+                if diffs <= 2:
+                    return dict(r)
+            comunes = sum(1 for c in nombre_lower if c in campo)
+            max_len = max(len(nombre_lower), len(campo))
+            if max_len > 0 and comunes / max_len >= 0.7:
                 return dict(r)
-        comunes = sum(1 for c in nombre_lower if c in campo)
-        max_len = max(len(nombre_lower), len(campo))
-        if max_len > 0 and comunes / max_len >= 0.7:
-            return dict(r)
     return None
 
 
@@ -160,7 +175,7 @@ async def obtener_capacidad_equipo(conn: asyncpg.Connection) -> list[dict]:
                       SUM(COALESCE(horas_esfuerzo, 4)) as horas_asignadas,
                       COUNT(*) as tareas_activas
                FROM backlog_items
-               WHERE estado IN ('En Analisis','En Desarrollo','En QA')
+               WHERE estado IN ('Backlog','En Analisis','En Desarrollo','En QA')
                AND dev_id IS NOT NULL
                GROUP BY dev_id
            ) t ON t.dev_id = d.id

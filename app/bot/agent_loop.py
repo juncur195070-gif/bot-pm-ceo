@@ -26,6 +26,7 @@ async def ejecutar_loop(
     tools: list[dict],
     conn: asyncpg.Connection,
     usuario: dict,
+    model_override: str | None = None,
 ) -> dict:
     """
     Ejecuta el loop agentico completo.
@@ -52,11 +53,12 @@ async def ejecutar_loop(
     while iteracion < MAX_ITERATIONS:
         iteracion += 1
 
-        # Llamar a Claude
+        # Llamar a Claude (usa model_override si viene, sino el default)
         resultado = await claude_service.llamar(
             system=system_prompt,
             messages=messages,
             tools=tools if tools else None,
+            model=model_override,
         )
 
         # Si Claude fallo completamente

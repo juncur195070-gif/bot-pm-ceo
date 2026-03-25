@@ -326,6 +326,21 @@ async def _crear_item(conn, params, usuario) -> str:
         if img["media_url"] and img["media_url"] not in adjuntos:
             adjuntos.append(img["media_url"])
 
+    # Proteccion anti-duplicados: si ya existe un item muy similar creado hace <5min, advertir
+    titulo_nuevo = params["titulo"]
+    duplicado = await conn.fetchrow(
+        """SELECT codigo, titulo, dev_nombre FROM backlog_items
+           WHERE unaccent(LOWER(titulo)) LIKE unaccent(LOWER($1))
+           AND created_at > NOW() - INTERVAL '5 minutes'
+           LIMIT 1""",
+        f"%{titulo_nuevo[:20]}%"
+    )
+    if duplicado:
+        return _fail(
+            f"Ya existe un item similar creado hace menos de 5 minutos: {duplicado['codigo']} '{duplicado['titulo']}' (dev: {duplicado['dev_nombre'] or 'sin asignar'}). "
+            f"Si quieres REASIGNAR ese item, usa asignar_tarea. No crees duplicados."
+        )
+
     data = {
         "titulo": params["titulo"],
         "tipo": params["tipo"],
@@ -376,6 +391,7 @@ async def _crear_item(conn, params, usuario) -> str:
         print(f"  ⚠ Scoring inicial fallo (no bloquea): {e}")
 
     # Si es Bug Critico → asignacion de emergencia al Bug Guard
+    emergencia_asignada = False
     if params["tipo"] in ("Bug Critico", "Solicitud Bloqueante"):
         try:
             from app.scheduled.emergencia import asignar_emergencia
@@ -383,17 +399,28 @@ async def _crear_item(conn, params, usuario) -> str:
                 conn, verificado["id"], verificado["codigo"], verificado["titulo"],
                 cliente_data.get("cliente_nombre")
             )
+            # Releer item para ver si se asigno
+            verificado = await q_backlog.obtener_item(conn, verificado["codigo"])
+            if verificado and verificado.get("dev_nombre"):
+                emergencia_asignada = True
         except Exception as e:
             print(f"  ⚠ Emergencia fallo: {e}")
 
-    # Sync a Airtable
-    record_id = await airtable_sync.sync_backlog_item(dict(verificado))
-    if record_id:
-        await q_backlog.actualizar_item(conn, verificado["codigo"], {"airtable_record_id": record_id})
+    # Sync a Airtable (background — no bloquea respuesta al usuario)
+    await _sync_item_airtable(conn, verificado["codigo"])
 
     # ── SUGERENCIA DE ASIGNACION ──
     sugerencia = None
-    try:
+
+    # Si la emergencia ya asigno al Bug Guard, informar directamente (no sugerir otro)
+    if emergencia_asignada:
+        sugerencia = {
+            "dev_sugerido": verificado["dev_nombre"],
+            "razon": f"Asignado automaticamente al Bug Guard ({verificado['dev_nombre']}) por ser {params['tipo']}",
+            "estado": "asignado_emergencia",
+        }
+    if not emergencia_asignada:
+      try:
         capacidad = await q_devs.obtener_capacidad_equipo(conn)
         horas_item = {"XS": 2, "S": 4, "M": 8, "L": 16, "XL": 32}.get(params.get("esfuerzo_talla", ""), 4)
         tipo_item = params["tipo"]
@@ -451,7 +478,7 @@ async def _crear_item(conn, params, usuario) -> str:
                     "estado": "sobrecargado",
                     "advertencia": f"Requiere {horas_item}h pero solo tiene {menos_cargado.get('horas_libres', 0)}h libres",
                 }
-    except Exception as e:
+      except Exception as e:
         print(f"  ⚠ Sugerencia de asignacion fallo (no bloquea): {e}")
 
     result = {"message": "Item creado y verificado en BD", "codigo": verificado["codigo"], "score_wsjf": verificado.get("score_wsjf"), "item": verificado}
@@ -570,6 +597,15 @@ async def _asignar_tarea(conn, params) -> str:
             await _sync_item_airtable(conn, codigo)
             return _ok({"message": f"{codigo} desasignado de {dev_anterior} y devuelto a Backlog", "codigo": codigo, "item": verificado})
         return _fail(f"No se pudo desasignar {codigo}")
+
+    # Si auto=true y ya tiene dev asignado, no reasignar (proteger asignaciones existentes)
+    if params.get("auto") and item.get("dev_id"):
+        return _ok({
+            "message": f"{codigo} ya esta asignado a {item.get('dev_nombre')}. No se reasigno.",
+            "codigo": codigo,
+            "dev_actual": item.get("dev_nombre"),
+            "ya_asignado": True
+        })
 
     skills_req = item.get("skill_requerido", [])
     horas_item = item.get("horas_esfuerzo") or 4

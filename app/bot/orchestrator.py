@@ -166,44 +166,79 @@ async def _procesar(conn: asyncpg.Connection, payload: dict, idempotency_key: st
     print(f"  💬 Respuesta ({resultado['iteraciones']} iter, {resultado['modelo_usado']}): {respuesta[:100]}...")
 
     # ── 6b. ANTI-MENTIRA: Si CONFIRMA accion sin usar tool → reintentar ──
+    # Solo detecta cuando Claude dice "YO hice algo" (primera persona + confirmacion)
+    # No se activa cuando Claude describe estado ("está asignado", "hay varios")
     no_uso_tools = len(resultado["tools_usados"]) == 0
     necesita_reintento = False
 
     if no_uso_tools and resultado.get("error") is None:
         respuesta_lower = respuesta.lower()
 
-        # Solo activar si Claude CONFIRMA haber hecho algo (no si pregunta por mas datos)
-        es_pregunta = "?" in respuesta and any(p in respuesta_lower for p in ["necesito", "falta", "cuál", "cual", "qué", "que nivel", "que skills"])
+        # Excluir preguntas — Claude pide mas datos, no miente
+        es_pregunta = "?" in respuesta and any(p in respuesta_lower for p in [
+            "necesito", "falta", "cuál", "cual", "qué", "que nivel", "que skills",
+            "dame", "dime", "confirma", "puedes"
+        ])
 
         if not es_pregunta:
-            # Caso 1: La RESPUESTA confirma una accion sin tool
-            palabras_confirmacion = [
-                "creado", "actualizado", "asignado", "registrado", "cambiado",
-                "establecido", "agregado", "eliminado", "modificado", "guardado",
-                "configurado", "ahora es", "ahora tiene", "ahora está",
-                "✅", "exitosamente", "correctamente", "listo",
+            # Detectar SOLO confirmaciones en primera persona (Claude dice "yo hice")
+            # Patron: verbo de accion conjugado + emoji de confirmacion
+            acciones_primera_persona = [
+                "he creado", "he actualizado", "he asignado", "he registrado",
+                "he cambiado", "he establecido", "he agregado", "he eliminado",
+                "he modificado", "he guardado", "he configurado",
+                "fue creado", "fue asignado", "fue actualizado", "fue registrado",
+                "queda creado", "queda asignado", "queda actualizado",
             ]
-            if any(p in respuesta_lower for p in palabras_confirmacion):
-                necesita_reintento = True
+            confirmo_accion = any(p in respuesta_lower for p in acciones_primera_persona)
 
-            # Caso 2: La RESPUESTA inventa datos sin consultar
-            palabras_datos_inventados = ["varias", "varios"]
-            if any(p in respuesta_lower for p in palabras_datos_inventados):
+            # Tambien detectar emoji ✅ + verbo participio (patron comun de mentira)
+            tiene_check = "✅" in respuesta
+            tiene_participio = any(p in respuesta_lower for p in [
+                "creado", "asignado", "actualizado", "registrado", "guardado"
+            ])
+            # ✅ + participio SIN tool = muy probable mentira
+            confirmo_con_emoji = tiene_check and tiene_participio
+
+            # Caso 3: Acepto instruccion sin actuar ("entendido", "anotado", "de acuerdo")
+            acepto_sin_actuar = any(p in respuesta_lower for p in [
+                "entendido", "anotado", "de acuerdo", "perfecto,", "ok,", "listo,",
+                "lo tengo", "lo anoto", "lo registro", "tomado en cuenta",
+            ])
+            # Solo si el mensaje del usuario era una instruccion (no una pregunta)
+            contenido_lower = contenido.lower()
+            era_instruccion = any(p in contenido_lower for p in [
+                "pon a", "asigna", "crea", "cambia", "quita", "elimina",
+                "es el bug guard", "bug guard", "desasigna", "actualiza",
+            ])
+
+            if confirmo_accion or confirmo_con_emoji or (acepto_sin_actuar and era_instruccion):
                 necesita_reintento = True
 
     if necesita_reintento:
-        print("  ⚠ Anti-mentira: reintentando con instruccion directa...")
-        # UN solo reintento con instruccion clara y el mensaje original
+        print("  ⚠ Anti-mentira: reintentando con modelo superior...")
+        # Reintento con:
+        # 1. Contexto limpio (sin historial que contamina)
+        # 2. Instruccion explicita de que NADA se guardo
+        # 3. Modelo superior (Sonnet) que entiende mejor las correcciones
+        instruccion_reintento = (
+            f"El usuario dice: '{contenido}'\n\n"
+            f"IMPORTANTE: No se ejecuto ningun cambio en la base de datos. "
+            f"DEBES usar el tool correspondiente AHORA para ejecutar lo que el usuario pide. "
+            f"Para reasignar una tarea: usa asignar_tarea con codigo_o_busqueda y dev_nombre. "
+            f"Para desasignar: usa asignar_tarea con desasignar=true. "
+            f"Para crear: usa crear_item. Para Bug Guard: usa reasignar_bug_guard. "
+            f"USA EL TOOL AHORA. No respondas sin ejecutar."
+        )
         resultado2 = await ejecutar_loop(
             system_prompt=contexto["system_prompt"],
             messages=[
-                {"role": "user", "content": contenido},
-                {"role": "assistant", "content": respuesta},
-                {"role": "user", "content": "NO se guardo. Usa el tool ahora."}
+                {"role": "user", "content": instruccion_reintento}
             ],
             tools=contexto["tools"],
             conn=conn,
             usuario=usuario,
+            model_override="claude-sonnet-4-5-20241022",
         )
         if len(resultado2["tools_usados"]) > 0:
             respuesta = resultado2["respuesta"]

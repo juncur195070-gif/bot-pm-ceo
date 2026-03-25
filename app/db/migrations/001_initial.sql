@@ -4,6 +4,10 @@
 -- Se ejecuta automaticamente al crear la DB por primera vez
 -- ============================================================
 
+-- ── Extensiones ──
+CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- Fuzzy matching (trigramas)
+CREATE EXTENSION IF NOT EXISTS unaccent;  -- Busqueda sin tildes
+
 -- ── Secuencias para codigos automaticos ──
 CREATE SEQUENCE IF NOT EXISTS seq_clientes START 1;
 CREATE SEQUENCE IF NOT EXISTS seq_leads START 1;

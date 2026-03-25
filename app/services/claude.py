@@ -47,9 +47,9 @@ class ClaudeService:
         try:
             response = await self._crear_mensaje(system, messages, tools, modelo)
         except RateLimitError:
-            # Rate limit — esperar mas tiempo y reintentar (max 3 veces)
-            for wait in [3, 10, 20]:
-                print(f"  ⚠ Rate limit, esperando {wait}s...")
+            # Rate limit — reintentar 3 veces con espera corta (2s, 4s, 8s)
+            for intento, wait in enumerate([2, 4, 8], 1):
+                print(f"  ⚠ Rate limit, intento {intento}/3, esperando {wait}s...")
                 await asyncio.sleep(wait)
                 try:
                     response = await self._crear_mensaje(system, messages, tools, modelo)
@@ -57,7 +57,7 @@ class ClaudeService:
                 except RateLimitError:
                     continue
             else:
-                return self._error_response("Rate limit excedido. Espera 1 minuto e intenta de nuevo.", time.time() - inicio)
+                return self._error_response("Rate limit excedido. Espera unos segundos e intenta de nuevo.", time.time() - inicio)
         except (APITimeoutError, APIError) as e:
             if modelo == self.model_primary and modelo != self.model_fallback:
                 print(f"  ⚠ {modelo} fallo ({type(e).__name__}), probando {self.model_fallback}...")
