@@ -140,14 +140,21 @@ async def ejecutar_asignacion():
         for a in asignaciones:
             await conn.execute(
                 """UPDATE backlog_items SET
-                    dev_id = $1, dev_nombre = $2,
-                    fecha_asignacion = NOW(), sprint_semana = $3
-                   WHERE id = $4""",
-                a["dev_id"], a["dev_nombre"], semana, a["item_id"]
+                    dev_id = $1,
+                    fecha_asignacion = NOW(), sprint_semana = $2
+                   WHERE id = $3""",
+                a["dev_id"], semana, a["item_id"]
             )
             # Sync a Airtable
             try:
-                item_full = await conn.fetchrow("SELECT * FROM backlog_items WHERE id = $1", a["item_id"])
+                item_full = await conn.fetchrow(
+                    """SELECT bi.*, c.nombre_clinica as cliente_nombre, c.mrr_mensual as cliente_mrr,
+                              c.tamano as cliente_tamano, c.sla_dias as cliente_sla_dias,
+                              d.nombre_completo as dev_nombre
+                       FROM backlog_items bi
+                       LEFT JOIN clientes c ON bi.cliente_id = c.id
+                       LEFT JOIN desarrolladores d ON bi.dev_id = d.id
+                       WHERE bi.id = $1""", a["item_id"])
                 if item_full:
                     await airtable_sync.sync_backlog_item(dict(item_full))
             except Exception as e:

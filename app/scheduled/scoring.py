@@ -47,7 +47,7 @@ def _calcular_score(item: dict, cliente_data: dict | None = None) -> dict:
 
     # A1: Score por MRR (ingreso mensual en soles)
     # Rangos basados en distribucion real: mayoria 139, max corpo 60K
-    mrr = float(cli.get("mrr_mensual") or item.get("cliente_mrr") or 0)
+    mrr = float(cli.get("mrr_mensual") or 0)
     a_mrr = 10 if mrr > 10000 else 8 if mrr > 3000 else 6 if mrr > 1000 else 5 if mrr > 500 else 3 if mrr > 100 else 2 if mrr > 0 else 1
 
     # A1b: Score por ARR (ingreso anual en soles — pesa mas que MRR)
@@ -58,7 +58,7 @@ def _calcular_score(item: dict, cliente_data: dict | None = None) -> dict:
     a1 = (a_mrr * 0.40) + (a_arr * 0.60)
 
     # A2: Tamano de la clinica
-    tamano = cli.get("tamano") or item.get("cliente_tamano") or ""
+    tamano = cli.get("tamano") or ""
     a2 = 10 if tamano == "Grande" else 6 if tamano == "Mediana" else 3
 
     # A3: Riesgo de churn REAL (calculado desde la DB)
@@ -233,25 +233,13 @@ async def ejecutar_scoring():
                 if lead_data:
                     item_dict["_lead_prob_cierre"] = lead_data.get("probabilidad_cierre", 0)
 
-            # Refrescar cache de datos del cliente en backlog_items
-            if cliente_data:
-                await conn.execute(
-                    """UPDATE backlog_items SET
-                        cliente_nombre = $1, cliente_mrr = $2,
-                        cliente_tamano = $3, cliente_sla_dias = $4
-                       WHERE id = $5""",
-                    cliente_data["nombre_clinica"], cliente_data["mrr_mensual"],
-                    cliente_data["tamano"], cliente_data["sla_dias"],
-                    item["id"]
-                )
-
             scores = _calcular_score(item_dict, cliente_data)
             scored.append({
                 "id": item["id"],
                 "codigo": item["codigo"],
                 "titulo": item["titulo"],
                 "tipo": item["tipo"],
-                "cliente_nombre": item["cliente_nombre"],
+                "cliente_nombre": cliente_data["nombre_clinica"] if cliente_data else None,
                 **scores,
             })
 
@@ -327,7 +315,14 @@ async def ejecutar_scoring():
         # 8. Sync TODOS los items a Airtable (scores actualizados)
         synced = 0
         for s in scored:
-            item_full = await conn.fetchrow("SELECT * FROM backlog_items WHERE id = $1", s["id"])
+            item_full = await conn.fetchrow(
+                """SELECT bi.*, c.nombre_clinica as cliente_nombre, c.mrr_mensual as cliente_mrr,
+                          c.tamano as cliente_tamano, c.sla_dias as cliente_sla_dias,
+                          d.nombre_completo as dev_nombre
+                   FROM backlog_items bi
+                   LEFT JOIN clientes c ON bi.cliente_id = c.id
+                   LEFT JOIN desarrolladores d ON bi.dev_id = d.id
+                   WHERE bi.id = $1""", s["id"])
             if item_full and item_full["airtable_record_id"]:
                 from app.services.airtable_sync import airtable_sync
                 await airtable_sync.sync_backlog_item(dict(item_full))

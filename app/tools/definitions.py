@@ -105,7 +105,7 @@ TOOL_CREAR_ITEM = {
 
 TOOL_ACTUALIZAR_ITEM = {
     "name": "actualizar_item",
-    "description": "Actualiza CUALQUIER campo de un item: titulo, estado, cliente, tipo, urgencia, descripcion, talla, notas, skill. Tambien puede ELIMINAR (Cancelado/Archivado) y QUITAR IMAGENES adjuntas.",
+    "description": "Actualiza CUALQUIER campo de un item (incluso cancelados/archivados para REACTIVAR). Puede: cambiar estado, tipo, urgencia, talla, cliente, notas. Tambien ELIMINAR (Cancelado/Archivado), REACTIVAR (Backlog) y QUITAR IMAGENES. Busca por titulo parcial o codigo.",
     "input_schema": {
         "type": "object",
         "properties": {
