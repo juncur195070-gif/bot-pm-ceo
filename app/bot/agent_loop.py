@@ -8,9 +8,9 @@ Maximo 5 iteraciones para evitar loops infinitos.
 Si Claude falla, retorna mensaje de error graceful.
 
 Ejemplo de flujo:
-  Iter 1: Claude pide consultar_backlog({cliente: "MINSUR"}) → recibe 3 items
-  Iter 2: Claude pide asignar_tarea({codigo: "BK-0120", auto: true}) → asignado a Carlos
-  Iter 3: Claude termina (end_turn) → "Registre BK-0120 y lo asigne a Carlos R."
+  Iter 1: Claude pide consultar_backlog → recibe items
+  Iter 2: Claude pide asignar_tarea → asigna al mejor dev
+  Iter 3: Claude termina (end_turn) → respuesta final al usuario
 """
 
 import asyncpg
