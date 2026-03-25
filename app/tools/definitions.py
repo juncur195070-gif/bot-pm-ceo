@@ -60,12 +60,12 @@ TOOL_CONSULTAR_EQUIPO = {
 
 TOOL_CONSULTAR_METRICAS = {
     "name": "consultar_metricas",
-    "description": "Dashboard y metricas: SLA, lead time, bugs, rendimiento por dev. Usa cuando piden reporte, dashboard, o como van.",
+    "description": "Dashboard, metricas y comparaciones: SLA, lead time, bugs, rendimiento por dev, velocidad del equipo. Usa para: reporte, dashboard, comparar devs, velocidad, como van.",
     "input_schema": {
         "type": "object",
         "properties": {
             "periodo": {"type": "string", "description": "esta_semana, este_mes, ultimos_7_dias", "default": "esta_semana"},
-            "tipo_metrica": {"type": "string", "enum": ["general", "por_dev", "por_cliente"], "default": "general"}
+            "tipo_metrica": {"type": "string", "enum": ["general", "por_dev", "por_cliente", "velocidad"], "default": "general"}
         }
     }
 }
@@ -274,6 +274,60 @@ TOOL_PREDECIR_ENTREGA = {
     }
 }
 
+TOOL_RECORDATORIO = {
+    "name": "recordatorio",
+    "description": "Crea un recordatorio para una fecha futura. El bot te avisará ese día. Usa para: 'recuérdame X el jueves', 'avísame el lunes sobre Y'.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "texto": {"type": "string", "description": "Qué recordar"},
+            "fecha": {"type": "string", "description": "Cuándo recordar. YYYY-MM-DD o 'mañana', 'lunes', 'jueves'"},
+            "codigo_item": {"type": "string", "description": "Código BK-XXXX relacionado (opcional)"}
+        },
+        "required": ["texto", "fecha"]
+    }
+}
+
+TOOL_BUSCAR_HISTORIAL = {
+    "name": "buscar_historial",
+    "description": "Busca en el historial de conversaciones y auditoría. Usa para: '¿qué decidimos sobre X?', '¿cuándo se habló de Y?', 'historial del item BK-XXXX'.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "busqueda": {"type": "string", "description": "Texto a buscar en conversaciones o auditoría"},
+            "codigo_item": {"type": "string", "description": "Buscar historial de un item específico (BK-XXXX)"}
+        },
+        "required": ["busqueda"]
+    }
+}
+
+TOOL_NOTA_RAPIDA = {
+    "name": "nota_rapida",
+    "description": "Guarda una nota rápida asociada a un cliente, lead, dev o tarea. Usa para: 'anota que...', 'recuerda que el Dr. García...', 'nota: el cliente pidió...'.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "nota": {"type": "string", "description": "Texto de la nota"},
+            "cliente": {"type": "string", "description": "Nombre del cliente (opcional)"},
+            "codigo_item": {"type": "string", "description": "Código BK-XXXX (opcional)"},
+            "dev": {"type": "string", "description": "Nombre del dev (opcional)"}
+        },
+        "required": ["nota"]
+    }
+}
+
+TOOL_RESUMEN_CLIENTE = {
+    "name": "resumen_cliente",
+    "description": "Genera un texto profesional para enviar al cliente sobre el estado de sus tickets. Usa para: 'genera resumen para X', 'texto para enviar a X'.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "cliente": {"type": "string", "description": "Nombre del cliente"}
+        },
+        "required": ["cliente"]
+    }
+}
+
 TOOL_CAMBIAR_ROL = {
     "name": "cambiar_rol",
     "description": "Cambia el rol del usuario actual entre PM y CEO. Solo PM y CEO pueden cambiar entre si.",
@@ -316,6 +370,10 @@ ALL_TOOLS = [
     TOOL_GESTIONAR_DEV,
     TOOL_ADJUNTAR_IMAGEN,
     TOOL_ACTUALIZAR_ESTADO_DEV,
+    TOOL_RECORDATORIO,
+    TOOL_BUSCAR_HISTORIAL,
+    TOOL_NOTA_RAPIDA,
+    TOOL_RESUMEN_CLIENTE,
     TOOL_CAMBIAR_ROL,
     TOOL_PREDECIR_ENTREGA,
 ]
@@ -330,6 +388,7 @@ TOOLS_POR_ROL = {
         "consultar_metricas", "consultar_cliente",
         "crear_item", "asignar_tarea", "derivar_a_persona",
         "gestionar_cliente", "adjuntar_imagen", "cambiar_rol", "predecir_entrega",
+        "recordatorio", "buscar_historial", "nota_rapida", "resumen_cliente",
     ],
     "desarrollador": [
         "consultar_backlog", "consultar_item", "consultar_equipo",

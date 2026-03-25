@@ -167,6 +167,14 @@ async def ejecutar_tool(
             result = await _cambiar_rol(conn, params, usuario)
         elif nombre == "predecir_entrega":
             result = await _predecir_entrega(conn, params)
+        elif nombre == "recordatorio":
+            result = await _crear_recordatorio(conn, params, usuario)
+        elif nombre == "buscar_historial":
+            result = await _buscar_historial(conn, params)
+        elif nombre == "nota_rapida":
+            result = await _nota_rapida(conn, params)
+        elif nombre == "resumen_cliente":
+            result = await _resumen_cliente(conn, params)
         else:
             result = _fail(f"Tool '{nombre}' no reconocido")
     except Exception as e:
@@ -269,6 +277,10 @@ async def _consultar_metricas(conn, params) -> str:
     """Dashboard y metricas."""
     tipo = params.get("tipo_metrica", "general")
     periodo = params.get("periodo", "esta_semana")
+
+    if tipo == "velocidad":
+        data = await q_metricas.velocidad_equipo(conn)
+        return _ok(data)
 
     if tipo == "por_dev":
         data = await q_metricas.rendimiento_por_dev(conn, periodo)
@@ -1272,4 +1284,162 @@ async def _predecir_entrega(conn, params) -> str:
         "basado_en": prediccion["basado_en"],
         "n_historico": prediccion["n_historico"],
         "nota": prediccion.get("nota", ""),
+    })
+
+
+async def _crear_recordatorio(conn, params, usuario) -> str:
+    """Crea un recordatorio para fecha futura."""
+    from datetime import datetime as dt, timedelta
+    import pytz
+    LIMA_TZ = pytz.timezone("America/Lima")
+
+    texto = params["texto"]
+    fecha_str = params["fecha"].lower().strip()
+
+    hoy = date.today()
+    dias_semana = {"lunes": 0, "martes": 1, "miercoles": 2, "miércoles": 2, "jueves": 3, "viernes": 4, "sabado": 5, "sábado": 5, "domingo": 6}
+
+    if fecha_str in ("mañana", "manana"):
+        fecha = hoy + timedelta(days=1)
+    elif fecha_str in ("pasado mañana", "pasado manana"):
+        fecha = hoy + timedelta(days=2)
+    elif fecha_str in dias_semana:
+        target = dias_semana[fecha_str]
+        diff = (target - hoy.weekday()) % 7
+        if diff == 0:
+            diff = 7
+        fecha = hoy + timedelta(days=diff)
+    else:
+        try:
+            fecha = date.fromisoformat(fecha_str[:10])
+        except Exception:
+            return _fail(f"No entendí la fecha '{fecha_str}'. Usa: mañana, lunes, jueves, o YYYY-MM-DD")
+
+    if fecha < hoy:
+        return _fail(f"La fecha {fecha} ya pasó")
+
+    fecha_dt = dt.combine(fecha, dt.min.time().replace(hour=9)).replace(tzinfo=LIMA_TZ)
+
+    item_id = None
+    if params.get("codigo_item"):
+        item = await conn.fetchrow("SELECT id FROM backlog_items WHERE codigo = $1", params["codigo_item"])
+        if item:
+            item_id = item["id"]
+
+    await conn.execute(
+        "INSERT INTO recordatorios (usuario_id, whatsapp, texto, fecha_recordar, backlog_item_id) VALUES ($1, $2, $3, $4, $5)",
+        usuario.get("id"), usuario.get("whatsapp", ""), texto, fecha_dt, item_id
+    )
+
+    return _ok({"message": f"Recordatorio creado para {fecha.strftime('%A %d/%m/%Y')}", "texto": texto, "fecha": fecha.isoformat()})
+
+
+async def _buscar_historial(conn, params) -> str:
+    """Busca en historial de conversaciones y auditoría."""
+    busqueda = params["busqueda"]
+    codigo = params.get("codigo_item")
+
+    if codigo:
+        logs = await conn.fetch(
+            """SELECT accion, detalle, origen, created_at FROM auditoria_log
+               WHERE backlog_item_id = (SELECT id FROM backlog_items WHERE codigo = $1)
+               ORDER BY created_at DESC LIMIT 10""", codigo)
+        if logs:
+            return _ok({"historial_item": codigo, "eventos": [
+                {"accion": l["accion"], "detalle": l["detalle"], "origen": l["origen"], "fecha": str(l["created_at"])}
+                for l in logs
+            ]})
+        return _fail(f"Sin historial para {codigo}")
+
+    # Buscar en conversaciones
+    msgs = await conn.fetch(
+        """SELECT direccion, contenido, created_at FROM mensajes_conversacion
+           WHERE unaccent(LOWER(contenido)) LIKE unaccent(LOWER($1))
+           ORDER BY created_at DESC LIMIT 10""", f"%{busqueda}%")
+
+    if msgs:
+        return _ok({"resultados": [
+            {"tipo": "conversacion", "direccion": m["direccion"], "contenido": m["contenido"][:200], "fecha": str(m["created_at"])}
+            for m in msgs
+        ]})
+
+    # Buscar en auditoría
+    logs = await conn.fetch(
+        """SELECT accion, detalle, origen, created_at FROM auditoria_log
+           WHERE unaccent(LOWER(detalle)) LIKE unaccent(LOWER($1))
+           ORDER BY created_at DESC LIMIT 10""", f"%{busqueda}%")
+
+    if logs:
+        return _ok({"resultados": [
+            {"tipo": "auditoria", "accion": l["accion"], "detalle": l["detalle"], "fecha": str(l["created_at"])}
+            for l in logs
+        ]})
+
+    return _fail(f"No encontré nada sobre '{busqueda}' en el historial")
+
+
+async def _nota_rapida(conn, params) -> str:
+    """Guarda nota rápida asociada a cliente, item o dev."""
+    import pytz
+    LIMA_TZ = pytz.timezone("America/Lima")
+    nota = params["nota"]
+    fecha = datetime.now(LIMA_TZ).strftime("%d/%m %H:%M")
+    destino = ""
+
+    if params.get("codigo_item"):
+        item = await conn.fetchrow("SELECT codigo, notas_pm FROM backlog_items WHERE codigo = $1", params["codigo_item"])
+        if item:
+            nueva = f"{item['notas_pm'] or ''}\n[{fecha}] {nota}".strip()
+            await conn.execute("UPDATE backlog_items SET notas_pm = $1 WHERE codigo = $2", nueva, item["codigo"])
+            destino = f"item {item['codigo']}"
+
+    elif params.get("cliente"):
+        cli = await q_clientes.buscar_cliente_por_nombre(conn, params["cliente"])
+        if cli:
+            nueva = f"{cli.get('notas_comerciales') or ''}\n[{fecha}] {nota}".strip()
+            await q_clientes.actualizar_cliente(conn, cli["codigo"], {"notas_comerciales": nueva})
+            destino = f"cliente {cli['nombre_clinica']}"
+
+    elif params.get("dev"):
+        dev = await q_devs.buscar_dev_por_nombre(conn, params["dev"])
+        if dev:
+            nueva = f"{dev.get('notas') or ''}\n[{fecha}] {nota}".strip()
+            await q_devs.actualizar_dev(conn, dev["codigo"], {"notas": nueva})
+            destino = f"dev {dev['nombre_completo']}"
+
+    if not destino:
+        await q_audit.registrar_accion(conn, origen="nota_rapida", accion="nota_creada", detalle=nota)
+        destino = "registro general"
+
+    return _ok({"message": f"Nota guardada en {destino}", "nota": nota})
+
+
+async def _resumen_cliente(conn, params) -> str:
+    """Genera resumen profesional para enviar al cliente."""
+    nombre = params["cliente"]
+    cliente = await q_clientes.buscar_cliente_por_nombre(conn, nombre)
+    if not cliente:
+        return _fail(f"Cliente '{nombre}' no encontrado")
+
+    items = await conn.fetch(
+        """SELECT codigo, titulo, tipo, estado, urgencia_declarada, dev_nombre
+           FROM backlog_items WHERE cliente_id = $1
+           AND estado NOT IN ('Cancelado','Archivado')
+           ORDER BY CASE estado
+               WHEN 'En Desarrollo' THEN 1 WHEN 'En QA' THEN 2
+               WHEN 'En Analisis' THEN 3 WHEN 'Backlog' THEN 4
+               WHEN 'Desplegado' THEN 5
+           END""", cliente["id"])
+
+    activos = [i for i in items if i["estado"] != "Desplegado"]
+    resueltos = [i for i in items if i["estado"] == "Desplegado"]
+
+    return _ok({
+        "cliente": cliente["nombre_clinica"],
+        "contacto": cliente.get("contacto_nombre"),
+        "items_activos": [{"codigo": i["codigo"], "titulo": i["titulo"], "estado": i["estado"], "tipo": i["tipo"]} for i in activos],
+        "items_resueltos_recientes": [{"codigo": i["codigo"], "titulo": i["titulo"]} for i in resueltos[:3]],
+        "total_activos": len(activos),
+        "total_resueltos": len(resueltos),
+        "instruccion": "Genera un texto profesional y cordial para enviar al cliente informando el estado de sus tickets."
     })
