@@ -305,3 +305,36 @@ def _dias_a_fecha(dias: float) -> str:
         if fecha.weekday() < 5:
             contados += 1
     return fecha.isoformat()
+
+
+async def velocidad_equipo(conn: asyncpg.Connection) -> dict:
+    """Velocity: items completados por semana, tendencia, estimación de limpieza."""
+    semanas = await conn.fetch(
+        """SELECT DATE_TRUNC('week', fecha_desplegado) as semana,
+                  COUNT(*) as completados,
+                  COALESCE(SUM(horas_esfuerzo), 0) as horas
+           FROM backlog_items
+           WHERE estado = 'Desplegado' AND fecha_desplegado >= NOW() - INTERVAL '8 weeks'
+           GROUP BY DATE_TRUNC('week', fecha_desplegado)
+           ORDER BY semana DESC"""
+    )
+
+    pendientes = await conn.fetchval(
+        "SELECT count(*) FROM backlog_items WHERE estado NOT IN ('Desplegado','Cancelado','Archivado')")
+
+    if not semanas:
+        return {"velocidad_items_semana": 0, "pendientes": pendientes, "semanas_historial": 0}
+
+    items_por_semana = [s["completados"] for s in semanas]
+    promedio = sum(items_por_semana) / len(items_por_semana) if items_por_semana else 0
+    tendencia = "mejorando" if len(items_por_semana) >= 2 and items_por_semana[0] > items_por_semana[-1] else "estable" if len(items_por_semana) < 2 else "bajando"
+
+    semanas_para_limpiar = round(pendientes / promedio, 1) if promedio > 0 else None
+
+    return {
+        "velocidad_items_semana": round(promedio, 1),
+        "ultimas_semanas": [{"semana": str(s["semana"].date()), "completados": s["completados"], "horas": float(s["horas"])} for s in semanas[:4]],
+        "tendencia": tendencia,
+        "pendientes": pendientes,
+        "semanas_para_limpiar": semanas_para_limpiar,
+    }
