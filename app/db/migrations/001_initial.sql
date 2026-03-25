@@ -139,10 +139,6 @@ CREATE TABLE IF NOT EXISTS backlog_items (
     descripcion         TEXT,
     reportado_por_id    UUID REFERENCES usuarios_autorizados(id),
     cliente_id          UUID REFERENCES clientes(id) ON DELETE SET NULL,
-    cliente_nombre      VARCHAR(200),
-    cliente_mrr         NUMERIC(10,2) DEFAULT 0,
-    cliente_tamano      VARCHAR(20),
-    cliente_sla_dias    INTEGER,
     es_lead             BOOLEAN NOT NULL DEFAULT FALSE,
     lead_id             UUID REFERENCES leads(id) ON DELETE SET NULL,
     urgencia_declarada  VARCHAR(20) CHECK (urgencia_declarada IN ('Critica','Alta','Media','Baja')),
@@ -165,7 +161,6 @@ CREATE TABLE IF NOT EXISTS backlog_items (
     score_bloque_c      NUMERIC(4,2) DEFAULT 0,
     estado              VARCHAR(20) NOT NULL DEFAULT 'Backlog',
     dev_id              UUID REFERENCES desarrolladores(id) ON DELETE SET NULL,
-    dev_nombre          VARCHAR(200),
     fecha_asignacion         TIMESTAMPTZ,
     sprint_semana            VARCHAR(10),
     fecha_inicio_desarrollo  TIMESTAMPTZ,
@@ -199,7 +194,7 @@ CREATE INDEX IF NOT EXISTS idx_backlog_created ON backlog_items(created_at DESC)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS mensajes_conversacion (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    usuario_id          UUID NOT NULL REFERENCES usuarios_autorizados(id),
+    usuario_id          UUID REFERENCES usuarios_autorizados(id),
     whatsapp            VARCHAR(20) NOT NULL,
     direccion           VARCHAR(10) NOT NULL CHECK (direccion IN ('entrante','saliente')),
     contenido           TEXT NOT NULL,
@@ -313,6 +308,22 @@ CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON auditoria_log(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_item ON auditoria_log(backlog_item_id);
 
 -- ============================================================
+-- 14. RECORDATORIOS — Recordatorios programados por PM/CEO
+-- ============================================================
+CREATE TABLE IF NOT EXISTS recordatorios (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    usuario_id          UUID,
+    whatsapp            VARCHAR(20) NOT NULL,
+    texto               TEXT NOT NULL,
+    fecha_recordar      TIMESTAMP WITH TIME ZONE NOT NULL,
+    enviado             BOOLEAN DEFAULT FALSE,
+    backlog_item_id     UUID REFERENCES backlog_items(id) ON DELETE SET NULL,
+    created_at          TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_recordatorios_fecha ON recordatorios(fecha_recordar) WHERE enviado = FALSE;
+
+-- ============================================================
 -- TRIGGERS
 -- ============================================================
 
@@ -356,8 +367,15 @@ BEGIN
     IF NEW.estado = 'Desplegado' AND OLD.estado != 'Desplegado' THEN
         NEW.fecha_desplegado := NOW();
         NEW.lead_time_horas := EXTRACT(EPOCH FROM (NOW() - NEW.created_at)) / 3600.0;
-        IF NEW.cliente_sla_dias IS NOT NULL THEN
-            NEW.cumplio_sla := (NEW.lead_time_horas / 24.0) <= NEW.cliente_sla_dias;
+        -- SLA se obtiene del cliente vinculado (normalizado)
+        IF NEW.cliente_id IS NOT NULL THEN
+            DECLARE sla_dias INTEGER;
+            BEGIN
+                SELECT c.sla_dias INTO sla_dias FROM clientes c WHERE c.id = NEW.cliente_id;
+                IF sla_dias IS NOT NULL THEN
+                    NEW.cumplio_sla := (NEW.lead_time_horas / 24.0) <= sla_dias;
+                END IF;
+            END;
         END IF;
     END IF;
     IF NEW.estado = 'En Desarrollo' AND OLD.estado != 'En Desarrollo' THEN
