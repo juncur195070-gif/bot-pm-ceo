@@ -88,35 +88,38 @@ async def buscar_cliente_por_nombre(conn: asyncpg.Connection, nombre: str) -> Op
     if row:
         return dict(row)
 
-    # 3. Match por similitud — usa pg_trgm si esta disponible,
-    #    sino compara con distancia de edicion simple
-    #    Busca clientes donde al menos 60% de las letras coinciden
-    rows = await conn.fetch(
-        "SELECT *, LENGTH(nombre_clinica) as len FROM clientes ORDER BY nombre_clinica"
-    )
-    nombre_lower = nombre.lower()
-    mejor_match = None
-    mejor_score = 0
-
-    for r in rows:
-        clinica_lower = r["nombre_clinica"].lower()
-        # Calcular similitud simple: letras en comun / longitud maxima
-        comunes = sum(1 for c in nombre_lower if c in clinica_lower)
-        max_len = max(len(nombre_lower), len(clinica_lower))
-        score = comunes / max_len if max_len > 0 else 0
-
-        # Tambien verificar si difieren en solo 1-2 caracteres (typos/audio)
-        if len(nombre_lower) == len(clinica_lower):
-            diffs = sum(1 for a, b in zip(nombre_lower, clinica_lower) if a != b)
-            if diffs <= 2:  # Maximo 2 letras diferentes
-                score = max(score, 0.8)
-
-        if score > mejor_score:
-            mejor_score = score
-            mejor_match = r
-
-    if mejor_match and mejor_score >= 0.6:
-        return dict(mejor_match)
+    # 3. Fuzzy match con pg_trgm (todo en PostgreSQL)
+    try:
+        row = await conn.fetchrow(
+            """SELECT *, similarity(LOWER(nombre_clinica), LOWER($1)) as sim
+               FROM clientes
+               WHERE similarity(LOWER(nombre_clinica), LOWER($1)) > 0.25
+               ORDER BY similarity(LOWER(nombre_clinica), LOWER($1)) DESC
+               LIMIT 1""",
+            nombre
+        )
+        if row:
+            return dict(row)
+    except Exception:
+        # pg_trgm no disponible — fallback Python
+        rows = await conn.fetch("SELECT * FROM clientes ORDER BY nombre_clinica")
+        nombre_lower = nombre.lower()
+        mejor_match = None
+        mejor_score = 0
+        for r in rows:
+            clinica_lower = r["nombre_clinica"].lower()
+            comunes = sum(1 for c in nombre_lower if c in clinica_lower)
+            max_len = max(len(nombre_lower), len(clinica_lower))
+            score = comunes / max_len if max_len > 0 else 0
+            if len(nombre_lower) == len(clinica_lower):
+                diffs = sum(1 for a, b in zip(nombre_lower, clinica_lower) if a != b)
+                if diffs <= 2:
+                    score = max(score, 0.8)
+            if score > mejor_score:
+                mejor_score = score
+                mejor_match = r
+        if mejor_match and mejor_score >= 0.6:
+            return dict(mejor_match)
 
     return None
 

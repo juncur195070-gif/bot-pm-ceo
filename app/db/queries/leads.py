@@ -35,15 +35,28 @@ async def buscar_lead_por_nombre(conn: asyncpg.Connection, nombre: str) -> Optio
     if row:
         return dict(row)
 
-    # Fuzzy match
-    rows = await conn.fetch("SELECT * FROM leads ORDER BY nombre_clinica")
-    nombre_lower = nombre.lower()
-    for r in rows:
-        clinica = r["nombre_clinica"].lower()
-        if len(nombre_lower) == len(clinica):
-            diffs = sum(1 for a, b in zip(nombre_lower, clinica) if a != b)
-            if diffs <= 2:
-                return dict(r)
+    # Fuzzy match con pg_trgm
+    try:
+        row = await conn.fetchrow(
+            """SELECT *, similarity(LOWER(nombre_clinica), LOWER($1)) as sim
+               FROM leads
+               WHERE similarity(LOWER(nombre_clinica), LOWER($1)) > 0.25
+               ORDER BY similarity(LOWER(nombre_clinica), LOWER($1)) DESC
+               LIMIT 1""",
+            nombre
+        )
+        if row:
+            return dict(row)
+    except Exception:
+        # pg_trgm no disponible — fallback Python
+        rows = await conn.fetch("SELECT * FROM leads ORDER BY nombre_clinica")
+        nombre_lower = nombre.lower()
+        for r in rows:
+            clinica = r["nombre_clinica"].lower()
+            if len(nombre_lower) == len(clinica):
+                diffs = sum(1 for a, b in zip(nombre_lower, clinica) if a != b)
+                if diffs <= 2:
+                    return dict(r)
     return None
 
 

@@ -21,6 +21,9 @@ from app.utils.phone import extraer_digitos
 
 LIMA_TZ = pytz.timezone("America/Lima")
 
+# Cache de alertas de renovacion (se refresca cada hora, no por mensaje)
+_renovacion_cache = {"texto": None, "updated_at": None}
+
 
 async def identificar_usuario(conn: asyncpg.Connection, whatsapp: str) -> dict | None:
     """
@@ -148,36 +151,49 @@ async def construir_contexto(
     # Reemplazar placeholder de fecha
     prompt = prompt.replace("{{fecha_actual}}", fecha_actual)
 
-    # 4b. Inyectar alertas de renovacion para PM y CEO
+    # 4b. Inyectar alertas de renovacion para PM y CEO (cached 1 hora)
     if usuario["rol"] in ("pm", "ceo"):
         try:
-            renovaciones = await conn.fetch(
-                """SELECT codigo, nombre_clinica, mrr_mensual,
-                          fecha_renovacion, fecha_renovacion - CURRENT_DATE as dias,
-                          COALESCE(renovacion_estado, 'pendiente') as renovacion_estado
-                   FROM clientes
-                   WHERE fecha_renovacion IS NOT NULL
-                   AND fecha_renovacion <= CURRENT_DATE + 14
-                   AND estado_cliente = 'Activo'
-                   AND COALESCE(renovacion_estado, 'pendiente') NOT IN ('renovado', 'perdido')
-                   ORDER BY fecha_renovacion ASC
-                   LIMIT 5"""
-            )
-            if renovaciones:
-                alertas_ren = []
-                for r in renovaciones:
-                    dias = r["dias"] if r["dias"] is not None else 0
-                    estado = r["renovacion_estado"]
-                    mrr = float(r["mrr_mensual"] or 0)
-                    if dias < 0:
-                        alertas_ren.append(f"🚨 {r['nombre_clinica']} VENCIDA hace {abs(dias)}d (S/{mrr:.0f})")
-                    elif dias <= 3:
-                        alertas_ren.append(f"🚨 {r['nombre_clinica']} vence en {dias}d (S/{mrr:.0f})")
-                    else:
-                        contactado = " ✓contactado" if estado == "contactado" else ""
-                        alertas_ren.append(f"⚠️ {r['nombre_clinica']} vence en {dias}d (S/{mrr:.0f}){contactado}")
-                prompt += "\n\nRENOVACIONES PROXIMAS (menciona al inicio si no han sido contactadas):\n" + "\n".join(alertas_ren)
-                prompt += "\nSi el usuario confirma que ya contacto a un cliente, usa gestionar_cliente con accion='actualizar' y renovacion_estado='contactado'. Si confirma que renovo, pon 'renovado'."
+            now = datetime.now(LIMA_TZ)
+            cache_valido = (_renovacion_cache["texto"] is not None
+                          and _renovacion_cache["updated_at"]
+                          and (now - _renovacion_cache["updated_at"]).seconds < 3600)
+
+            if not cache_valido:
+                renovaciones = await conn.fetch(
+                    """SELECT codigo, nombre_clinica, mrr_mensual,
+                              fecha_renovacion, fecha_renovacion - CURRENT_DATE as dias,
+                              COALESCE(renovacion_estado, 'pendiente') as renovacion_estado
+                       FROM clientes
+                       WHERE fecha_renovacion IS NOT NULL
+                       AND fecha_renovacion <= CURRENT_DATE + 14
+                       AND estado_cliente = 'Activo'
+                       AND COALESCE(renovacion_estado, 'pendiente') NOT IN ('renovado', 'perdido')
+                       ORDER BY fecha_renovacion ASC
+                       LIMIT 5"""
+                )
+                if renovaciones:
+                    alertas_ren = []
+                    for r in renovaciones:
+                        dias = r["dias"] if r["dias"] is not None else 0
+                        estado = r["renovacion_estado"]
+                        mrr = float(r["mrr_mensual"] or 0)
+                        if dias < 0:
+                            alertas_ren.append(f"🚨 {r['nombre_clinica']} VENCIDA hace {abs(dias)}d (S/{mrr:.0f})")
+                        elif dias <= 3:
+                            alertas_ren.append(f"🚨 {r['nombre_clinica']} vence en {dias}d (S/{mrr:.0f})")
+                        else:
+                            contactado = " ✓contactado" if estado == "contactado" else ""
+                            alertas_ren.append(f"⚠️ {r['nombre_clinica']} vence en {dias}d (S/{mrr:.0f}){contactado}")
+                    texto_ren = "\n\nRENOVACIONES PROXIMAS (menciona al inicio si no han sido contactadas):\n" + "\n".join(alertas_ren)
+                    texto_ren += "\nSi el usuario confirma que ya contacto a un cliente, usa gestionar_cliente con accion='actualizar' y renovacion_estado='contactado'. Si confirma que renovo, pon 'renovado'."
+                    _renovacion_cache["texto"] = texto_ren
+                else:
+                    _renovacion_cache["texto"] = ""
+                _renovacion_cache["updated_at"] = now
+
+            if _renovacion_cache["texto"]:
+                prompt += _renovacion_cache["texto"]
         except Exception as e:
             print(f"  ⚠ Error cargando renovaciones: {e}")
 

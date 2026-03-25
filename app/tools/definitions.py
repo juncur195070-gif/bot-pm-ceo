@@ -296,7 +296,7 @@ ALL_TOOLS = [
 # Cada rol solo ve los tools que puede usar
 
 TOOLS_POR_ROL = {
-    "pm": [t["name"] for t in ALL_TOOLS],  # TODOS
+    "pm": [t["name"] for t in ALL_TOOLS if t["name"] != "actualizar_estado_dev"],  # Todos excepto tool de dev
     "ceo": [
         "consultar_backlog", "consultar_item", "consultar_equipo",
         "consultar_metricas", "consultar_cliente",
