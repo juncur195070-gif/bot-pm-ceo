@@ -19,7 +19,7 @@ TOOL_CONSULTAR_BACKLOG = {
     "input_schema": {
         "type": "object",
         "properties": {
-            "cliente": {"type": "string", "description": "Nombre del cliente (ej: MINSUR)"},
+            "cliente": {"type": "string", "description": "Nombre del cliente. Solo usa nombres que el usuario mencione, NUNCA inventes nombres de clinicas."},
             "tipo": {"type": "string", "enum": ["Bug Critico","Bug Importante","Bug Menor","Solicitud Bloqueante","Solicitud Mejora","Deuda Tecnica Visible","Deuda Tecnica Interna","Requisito Lead","Roadmap"]},
             "estado": {"type": "string", "enum": ["Backlog","En Analisis","En Desarrollo","En QA","Desplegado"]},
             "dev_nombre": {"type": "string", "description": "Nombre del dev asignado"},
@@ -85,7 +85,7 @@ TOOL_CONSULTAR_CLIENTE = {
 
 TOOL_CREAR_ITEM = {
     "name": "crear_item",
-    "description": "Crea un nuevo item en el backlog. SIEMPRE incluye el campo 'cliente' si el usuario menciona un nombre de clinica (MINSUR, KOMATSU, etc). SIEMPRE incluye 'esfuerzo_talla' si el usuario menciona talla (XS, S, M, L, XL). Si falta tipo o descripcion, pregunta.",
+    "description": "Crea un nuevo item en el backlog. Solo TITULO y TIPO son obligatorios. Cliente, urgencia, talla, skill son opcionales — NO los pidas si el usuario no los dio. Incluye 'cliente' solo si el usuario menciono uno. Crea el item RAPIDO con lo que tengas.",
     "input_schema": {
         "type": "object",
         "properties": {
@@ -199,7 +199,7 @@ TOOL_REASIGNAR_BUG_GUARD = {
 
 TOOL_GESTIONAR_CLIENTE = {
     "name": "gestionar_cliente",
-    "description": "Crea, actualiza o ELIMINA un cliente o lead. Para eliminar: usa eliminar_cliente o eliminar_lead (soft delete, cambia estado a Churned/Perdido).",
+    "description": "Crea, actualiza o ELIMINA un cliente o lead. Para CREAR cliente solo necesitas nombre_clinica y tamano. MRR, SLA, contacto son OPCIONALES — no exijas datos que el usuario no dio. Para eliminar: usa eliminar_cliente/eliminar_lead.",
     "input_schema": {
         "type": "object",
         "properties": {
@@ -227,7 +227,7 @@ TOOL_GESTIONAR_CLIENTE = {
 
 TOOL_GESTIONAR_DEV = {
     "name": "gestionar_dev",
-    "description": "Crea, actualiza o DESACTIVA un desarrollador. Para desactivar: usa desactivar_dev (no lo elimina, solo marca como no disponible). Para crear necesitas: nombre_completo, nivel, jornada, skills, whatsapp.",
+    "description": "Crea, actualiza o DESACTIVA un desarrollador. Para crear solo necesitas: nombre_completo, nivel, skills, whatsapp. Jornada es opcional (default full_time). Para desactivar: usa desactivar_dev.",
     "input_schema": {
         "type": "object",
         "properties": {

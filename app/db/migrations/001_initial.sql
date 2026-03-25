@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS clientes (
     mrr_mensual         NUMERIC(10,2) NOT NULL DEFAULT 0 CHECK (mrr_mensual >= 0),
     arr_calculado       NUMERIC(10,2) GENERATED ALWAYS AS (mrr_mensual * 12) STORED,
     tamano              VARCHAR(20) NOT NULL CHECK (tamano IN ('Grande','Mediana','Pequena')),
-    sla_dias            INTEGER NOT NULL,
+    sla_dias            INTEGER DEFAULT 7,
     segmento            VARCHAR(50),
     estado_cliente      VARCHAR(20) NOT NULL DEFAULT 'Activo'
                             CHECK (estado_cliente IN ('Activo','En riesgo','Suspendido','Churned')),
