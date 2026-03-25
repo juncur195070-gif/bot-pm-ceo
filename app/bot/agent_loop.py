@@ -17,7 +17,7 @@ import asyncpg
 from app.services.claude import claude_service
 from app.tools.registry import ejecutar_tool
 
-MAX_ITERATIONS = 3  # Reducido de 5 a 3 — suficiente para consulta+accion+respuesta
+MAX_ITERATIONS = 5  # 5 iteraciones: soporta crear dependencias (cliente→item→asignar) y acciones multiples
 
 
 async def ejecutar_loop(
@@ -148,9 +148,13 @@ async def ejecutar_loop(
                 "error": f"stop_reason inesperado: {resultado['stop_reason']}",
             }
 
-    # Si se alcanzo el maximo de iteraciones
+    # Si se alcanzo el maximo de iteraciones — informar qué se logró
+    if tools_usados:
+        resumen = f"Ejecute {len(tools_usados)} acciones ({', '.join(tools_usados)}) pero no alcance a completar todo. ¿Qué falta?"
+    else:
+        resumen = "No pude procesar tu mensaje. Intenta dividirlo en partes mas pequeñas o ser mas especifico."
     return {
-        "respuesta": "Estuve procesando mucho y no pude completar. Intenta ser mas especifico.",
+        "respuesta": resumen,
         "iteraciones": MAX_ITERATIONS,
         "tools_usados": tools_usados,
         "modelo_usado": resultado.get("model_used"),

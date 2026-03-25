@@ -83,6 +83,20 @@ async def _procesar(conn: asyncpg.Connection, payload: dict, idempotency_key: st
     tipo_contenido = msg["type"]
     media_url = msg.get("media_url")
 
+    # Pre-procesar audio transcrito: convertir números en texto a dígitos
+    # "nueve, uno, seis" → "916" para que Claude entienda WhatsApp numbers
+    if tipo_contenido == "audio" and contenido:
+        import re
+        _NUMS = {"cero":"0","uno":"1","dos":"2","tres":"3","cuatro":"4","cinco":"5",
+                 "seis":"6","siete":"7","ocho":"8","nueve":"9"}
+        def _reemplazar_nums(texto):
+            for palabra, digito in _NUMS.items():
+                texto = re.sub(rf'\b{palabra}\b', digito, texto, flags=re.IGNORECASE)
+            # Limpiar separadores entre digitos: "9, 1, 6" → "916"
+            texto = re.sub(r'(\d),?\s*(?=\d)', r'\1', texto)
+            return texto
+        contenido = _reemplazar_nums(contenido)
+
     print(f"📩 Mensaje de {whatsapp} ({tipo_contenido}): {contenido[:100]}...")
 
     # Si es imagen sin caption, agregar contexto para que Claude sepa
