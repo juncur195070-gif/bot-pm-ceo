@@ -163,6 +163,10 @@ async def ejecutar_tool(
             result = await _adjuntar_imagen(conn, params, usuario)
         elif nombre == "actualizar_estado_dev":
             result = await _actualizar_estado_dev(conn, params, usuario)
+        elif nombre == "cambiar_rol":
+            result = await _cambiar_rol(conn, params, usuario)
+        elif nombre == "predecir_entrega":
+            result = await _predecir_entrega(conn, params)
         else:
             result = _fail(f"Tool '{nombre}' no reconocido")
     except Exception as e:
@@ -220,6 +224,13 @@ async def _consultar_item(conn, params, usuario) -> str:
             return _fail("Item no encontrado con ese codigo")
         if dev_id_filtro and str(item.get("dev_id")) != str(dev_id_filtro):
             return _fail("Ese item no esta asignado a ti")
+        if item and item.get("score_wsjf") and float(item.get("score_wsjf", 0)) > 0:
+            item["score_explicacion"] = {
+                "bloque_a_cliente": f"{float(item.get('score_bloque_a', 0)):.1f}/10 (valor del cliente: MRR, tamaño, riesgo)",
+                "bloque_b_tarea": f"{float(item.get('score_bloque_b', 0)):.1f}/10 (gravedad: tipo, urgencia, impacto)",
+                "bloque_c_tiempo": f"{float(item.get('score_bloque_c', 0)):.1f}/10 (urgencia temporal: deadline, antigüedad)",
+                "formula": "WSJF = (A×40% + B×35% + C×25%) / tamaño_tarea"
+            }
         return _ok({"item": item})
 
     if params.get("busqueda_texto") or params.get("cliente"):
@@ -228,7 +239,15 @@ async def _consultar_item(conn, params, usuario) -> str:
         if dev_id_filtro:
             items = [i for i in items if str(i.get("dev_id")) == str(dev_id_filtro)]
         if items:
-            return _ok({"item": items[0]})
+            item = items[0]
+            if item and item.get("score_wsjf") and float(item.get("score_wsjf", 0)) > 0:
+                item["score_explicacion"] = {
+                    "bloque_a_cliente": f"{float(item.get('score_bloque_a', 0)):.1f}/10 (valor del cliente: MRR, tamaño, riesgo)",
+                    "bloque_b_tarea": f"{float(item.get('score_bloque_b', 0)):.1f}/10 (gravedad: tipo, urgencia, impacto)",
+                    "bloque_c_tiempo": f"{float(item.get('score_bloque_c', 0)):.1f}/10 (urgencia temporal: deadline, antigüedad)",
+                    "formula": "WSJF = (A×40% + B×35% + C×25%) / tamaño_tarea"
+                }
+            return _ok({"item": item})
         return _fail("No se encontraron items asignados a ti con esa busqueda")
 
     return _fail("Necesito un codigo BK-XXXX o texto para buscar")
@@ -579,6 +598,38 @@ async def _actualizar_item(conn, params, usuario) -> str:
             "UPDATE clientes SET fecha_ultimo_item_resuelto = NOW() WHERE id = $1",
             verificado["cliente_id"]
         )
+
+    # Actualizar metricas Bug Guard si es bug resuelto
+    if params.get("estado") in ("Desplegado", "En QA") and verificado.get("tipo") in ("Bug Critico", "Bug Importante"):
+        try:
+            from datetime import datetime as dt
+            import pytz
+            LIMA_TZ = pytz.timezone("America/Lima")
+            semana = f"S{dt.now(LIMA_TZ).isocalendar()[1]}-{dt.now(LIMA_TZ).year}"
+
+            # Calcular tiempo de respuesta en minutos
+            if verificado.get("fecha_asignacion"):
+                resp_min = (dt.now(LIMA_TZ) - verificado["fecha_asignacion"].replace(tzinfo=LIMA_TZ)).total_seconds() / 60
+            else:
+                resp_min = None
+
+            await conn.execute("""
+                UPDATE bug_guard_historial SET
+                    bugs_atendidos_total = bugs_atendidos_total + 1,
+                    bugs_criticos = bugs_criticos + CASE WHEN $1 = 'Bug Critico' THEN 1 ELSE 0 END,
+                    tiempo_promedio_respuesta_min = CASE
+                        WHEN tiempo_promedio_respuesta_min IS NULL OR tiempo_promedio_respuesta_min = 0 THEN $2
+                        ELSE (tiempo_promedio_respuesta_min + $2) / 2
+                    END
+                WHERE semana_codigo = $3""",
+                verificado["tipo"], resp_min, semana
+            )
+        except Exception as e:
+            print(f"  ⚠ Bug Guard metrics update failed: {e}")
+
+    # Incrementar tareas completadas del dev si se marco como Desplegado
+    if params.get("estado") == "Desplegado" and verificado.get("dev_id"):
+        await conn.execute("UPDATE desarrolladores SET tareas_completadas_total = tareas_completadas_total + 1 WHERE id = $1", verificado["dev_id"])
 
     # Si se canceló/archivó → eliminar de Airtable
     if params.get("estado") in ("Cancelado", "Archivado") and verificado.get("airtable_record_id"):
@@ -1098,10 +1149,127 @@ async def _actualizar_estado_dev(conn, params, usuario) -> str:
     if not verificado or verificado.get("estado") != estado:
         return _fail(f"El cambio de estado de {codigo} NO se verifico en la BD")
 
+    # Actualizar metricas Bug Guard si es bug resuelto
+    if params.get("estado") in ("Desplegado", "En QA") and verificado.get("tipo") in ("Bug Critico", "Bug Importante"):
+        try:
+            from datetime import datetime as dt
+            import pytz
+            LIMA_TZ = pytz.timezone("America/Lima")
+            semana = f"S{dt.now(LIMA_TZ).isocalendar()[1]}-{dt.now(LIMA_TZ).year}"
+
+            # Calcular tiempo de respuesta en minutos
+            if verificado.get("fecha_asignacion"):
+                resp_min = (dt.now(LIMA_TZ) - verificado["fecha_asignacion"].replace(tzinfo=LIMA_TZ)).total_seconds() / 60
+            else:
+                resp_min = None
+
+            await conn.execute("""
+                UPDATE bug_guard_historial SET
+                    bugs_atendidos_total = bugs_atendidos_total + 1,
+                    bugs_criticos = bugs_criticos + CASE WHEN $1 = 'Bug Critico' THEN 1 ELSE 0 END,
+                    tiempo_promedio_respuesta_min = CASE
+                        WHEN tiempo_promedio_respuesta_min IS NULL OR tiempo_promedio_respuesta_min = 0 THEN $2
+                        ELSE (tiempo_promedio_respuesta_min + $2) / 2
+                    END
+                WHERE semana_codigo = $3""",
+                verificado["tipo"], resp_min, semana
+            )
+        except Exception as e:
+            print(f"  ⚠ Bug Guard metrics update failed: {e}")
+
+    # Incrementar tareas completadas del dev si se marco como Desplegado
+    if params.get("estado") == "Desplegado" and verificado.get("dev_id"):
+        await conn.execute("UPDATE desarrolladores SET tareas_completadas_total = tareas_completadas_total + 1 WHERE id = $1", verificado["dev_id"])
+
     await _sync_item_airtable(conn, codigo)
     return _ok({
         "message": f"{codigo} cambiado a '{estado}' y verificado en BD",
         "codigo": codigo,
         "estado": estado,
         "item": verificado
+    })
+
+
+async def _cambiar_rol(conn, params, usuario) -> str:
+    """Cambia el rol del usuario entre PM y CEO."""
+    nuevo_rol = params["nuevo_rol"]
+    rol_actual = usuario.get("rol")
+
+    if rol_actual not in ("pm", "ceo"):
+        return _fail("Solo PM y CEO pueden cambiar de rol")
+    if nuevo_rol == rol_actual:
+        return _fail(f"Ya tienes el rol {rol_actual}")
+
+    await conn.execute(
+        "UPDATE usuarios_autorizados SET rol = $1 WHERE id = $2",
+        nuevo_rol, usuario["id"]
+    )
+
+    verificado = await conn.fetchrow("SELECT rol FROM usuarios_autorizados WHERE id = $1", usuario["id"])
+    if not verificado or verificado["rol"] != nuevo_rol:
+        return _fail("No se pudo cambiar el rol")
+
+    return _ok({"message": f"Rol cambiado de {rol_actual} a {nuevo_rol}", "rol_anterior": rol_actual, "rol_nuevo": nuevo_rol})
+
+
+async def _predecir_entrega(conn, params) -> str:
+    """Predice fecha de entrega de un item o del sprint completo."""
+    modo = params.get("modo", "item")
+
+    if modo == "sprint":
+        resultado = await q_metricas.predecir_sprint(conn)
+        if "error" in resultado:
+            return _fail(resultado["error"])
+        return _ok({
+            "message": f"Prediccion del sprint ({resultado['n_items']} items activos)",
+            "probable": f"{resultado['p50_fecha']} ({resultado['p50_dias']} dias laborales)",
+            "peor_caso": f"{resultado['p85_fecha']} ({resultado['p85_dias']} dias)",
+            "extremo": f"{resultado['p95_fecha']} ({resultado['p95_dias']} dias)",
+            "capacidad_equipo": f"{resultado['horas_equipo_dia']}h/dia",
+            "metodo": resultado["basado_en"],
+        })
+
+    # Modo item: predecir una tarea específica
+    busqueda = params.get("codigo_o_busqueda", "")
+    if not busqueda:
+        # Sin item específico → predecir sprint
+        resultado = await q_metricas.predecir_sprint(conn)
+        if "error" in resultado:
+            return _fail(resultado["error"])
+        return _ok({
+            "message": f"Prediccion del sprint ({resultado['n_items']} items)",
+            "probable": f"{resultado['p50_fecha']} ({resultado['p50_dias']} dias)",
+            "peor_caso": f"{resultado['p85_fecha']} ({resultado['p85_dias']} dias)",
+            "metodo": resultado["basado_en"],
+        })
+
+    # Buscar el item
+    codigo, err = await _resolver_codigo(conn, busqueda)
+    if err:
+        return _fail(err)
+
+    item = await q_backlog.obtener_item(conn, codigo)
+    if not item:
+        return _fail(f"Item {codigo} no encontrado")
+
+    if item.get("estado") in ("Desplegado", "Cancelado", "Archivado"):
+        return _ok({"message": f"{codigo} ya está en estado {item['estado']}", "fecha_desplegado": str(item.get("fecha_desplegado", ""))})
+
+    talla = item.get("esfuerzo_talla") or "M"
+    prediccion = await q_metricas.predecir_entrega(
+        conn,
+        esfuerzo_talla=talla,
+        dev_id=item.get("dev_id"),
+        tipo=item.get("tipo")
+    )
+
+    return _ok({
+        "message": f"Prediccion para {codigo} ({item['titulo'][:40]})",
+        "talla": talla,
+        "dev": item.get("dev_nombre") or "sin asignar",
+        "probable": f"{prediccion['p50_fecha']} ({prediccion['p50_horas']}h)",
+        "peor_caso": f"{prediccion['p85_fecha']} ({prediccion['p85_horas']}h)",
+        "basado_en": prediccion["basado_en"],
+        "n_historico": prediccion["n_historico"],
+        "nota": prediccion.get("nota", ""),
     })
