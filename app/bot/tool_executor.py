@@ -514,6 +514,20 @@ async def _actualizar_item(conn, params, usuario) -> str:
     if params.get("skill_requerido"):
         data["skill_requerido"] = [params["skill_requerido"]] if isinstance(params["skill_requerido"], str) else params["skill_requerido"]
 
+    # Limpiar adjuntos (quitar todas las imagenes)
+    if params.get("limpiar_adjuntos"):
+        data["adjuntos_urls"] = []
+
+    # Quitar cliente del item
+    if params.get("quitar_cliente"):
+        data["cliente_id"] = None
+        data["cliente_nombre"] = None
+        data["cliente_mrr"] = None
+        data["cliente_tamano"] = None
+        data["cliente_sla_dias"] = None
+        data["es_lead"] = False
+        data["lead_id"] = None
+
     # Si cambia el cliente, buscar en clientes y leads
     if params.get("cliente"):
         cliente = await q_clientes.buscar_cliente_por_nombre(conn, params["cliente"])
@@ -566,7 +580,15 @@ async def _actualizar_item(conn, params, usuario) -> str:
             verificado["cliente_id"]
         )
 
-    await _sync_item_airtable(conn, codigo)
+    # Si se canceló/archivó → eliminar de Airtable
+    if params.get("estado") in ("Cancelado", "Archivado") and verificado.get("airtable_record_id"):
+        try:
+            await airtable_sync.delete_record(verificado["airtable_record_id"])
+            await conn.execute("UPDATE backlog_items SET airtable_record_id = NULL WHERE codigo = $1", codigo)
+        except Exception as e:
+            print(f"  ⚠ Airtable delete fallo: {e}")
+    else:
+        await _sync_item_airtable(conn, codigo)
 
     cambios = [k for k in data.keys() if k not in ("cliente_id", "cliente_mrr", "cliente_tamano", "cliente_sla_dias", "lead_id")]
     return _ok({"message": f"Item {codigo} actualizado y verificado: {', '.join(cambios)}", "item": verificado})
@@ -885,6 +907,19 @@ async def _gestionar_cliente(conn, params) -> str:
             return _fail("No se pudo actualizar el cliente")
         return _ok({"message": "Cliente actualizado y verificado", "data": cliente})
 
+    elif accion == "eliminar_cliente":
+        nombre = params.get("codigo_o_nombre", "")
+        if nombre.startswith("CLI-"):
+            cliente = await q_clientes.actualizar_cliente(conn, nombre, {"estado_cliente": "Churned"})
+        else:
+            found = await q_clientes.buscar_cliente_por_nombre(conn, nombre)
+            if not found:
+                return _fail(f"Cliente '{nombre}' no encontrado")
+            cliente = await q_clientes.actualizar_cliente(conn, found["codigo"], {"estado_cliente": "Churned"})
+        if not cliente:
+            return _fail("No se pudo eliminar el cliente")
+        return _ok({"message": f"Cliente {cliente['nombre_clinica']} eliminado (estado: Churned)", "data": cliente})
+
     elif accion == "crear_lead":
         data = filtrar()
         lead = await q_leads.crear_lead(conn, data)
@@ -907,6 +942,19 @@ async def _gestionar_cliente(conn, params) -> str:
             return _fail("No se pudo actualizar el lead")
         return _ok({"message": "Lead actualizado y verificado", "data": lead})
 
+    elif accion == "eliminar_lead":
+        nombre = params.get("codigo_o_nombre", "")
+        if nombre.startswith("LED-"):
+            lead = await q_leads.actualizar_lead(conn, nombre, {"estado_lead": "Perdido"})
+        else:
+            found = await q_leads.buscar_lead_por_nombre(conn, nombre)
+            if not found:
+                return _fail(f"Lead '{nombre}' no encontrado")
+            lead = await q_leads.actualizar_lead(conn, found["codigo"], {"estado_lead": "Perdido"})
+        if not lead:
+            return _fail("No se pudo eliminar el lead")
+        return _ok({"message": f"Lead {lead['nombre_clinica']} eliminado (estado: Perdido)", "data": lead})
+
     elif accion == "convertir_lead":
         nombre = params.get("codigo_o_nombre", "")
         data = filtrar()
@@ -927,7 +975,7 @@ async def _gestionar_cliente(conn, params) -> str:
             "data": result["cliente"]
         })
 
-    return _fail(f"Accion '{accion}' no reconocida. Usa: crear_cliente, actualizar_cliente, crear_lead, actualizar_lead, convertir_lead")
+    return _fail(f"Accion '{accion}' no reconocida. Usa: crear_cliente, actualizar_cliente, eliminar_cliente, crear_lead, actualizar_lead, eliminar_lead, convertir_lead")
 
 
 async def _gestionar_dev(conn, params) -> str:
@@ -960,7 +1008,20 @@ async def _gestionar_dev(conn, params) -> str:
             return _fail("No se pudo actualizar el dev")
         return _ok({"message": "Dev actualizado y verificado", "data": dev})
 
-    return _fail(f"Accion '{accion}' no implementada aun")
+    elif accion == "desactivar_dev":
+        nombre = params.get("codigo_o_nombre", "")
+        if nombre.startswith("DEV-"):
+            dev = await q_devs.actualizar_dev(conn, nombre, {"disponible": False})
+        else:
+            found = await q_devs.buscar_dev_por_nombre(conn, nombre)
+            if not found:
+                return _fail(f"Dev '{nombre}' no encontrado")
+            dev = await q_devs.actualizar_dev(conn, found["codigo"], {"disponible": False})
+        if not dev:
+            return _fail("No se pudo desactivar el dev")
+        return _ok({"message": f"Dev {dev['nombre_completo']} desactivado (no disponible)", "data": dev})
+
+    return _fail(f"Accion '{accion}' no reconocida")
 
 
 async def _adjuntar_imagen(conn, params, usuario) -> str:

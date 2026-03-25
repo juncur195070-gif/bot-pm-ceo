@@ -274,7 +274,8 @@ async def _procesar(conn: asyncpg.Connection, payload: dict, idempotency_key: st
     )
 
     # ── 10. Auto-adjuntar imagenes (post-respuesta, no bloquea al usuario) ──
-    if media_url and tipo_contenido == "imagen":
+    # Solo si Claude NO uso adjuntar_imagen (evita duplicar en 2 items)
+    if media_url and tipo_contenido == "imagen" and "adjuntar_imagen" not in resultado["tools_usados"]:
         import asyncio
         asyncio.create_task(_auto_adjuntar_imagen_bg(usuario["id"], media_url, resultado["tools_usados"]))
 

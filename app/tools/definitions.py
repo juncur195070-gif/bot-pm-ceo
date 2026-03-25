@@ -105,13 +105,13 @@ TOOL_CREAR_ITEM = {
 
 TOOL_ACTUALIZAR_ITEM = {
     "name": "actualizar_item",
-    "description": "Actualiza CUALQUIER campo de un item: titulo, estado, cliente, tipo, urgencia, descripcion, talla, notas, skill. Usa para cambiar estado, renombrar, reasignar cliente, corregir datos.",
+    "description": "Actualiza CUALQUIER campo de un item: titulo, estado, cliente, tipo, urgencia, descripcion, talla, notas, skill. Tambien puede ELIMINAR (Cancelado/Archivado) y QUITAR IMAGENES adjuntas.",
     "input_schema": {
         "type": "object",
         "properties": {
             "codigo_o_busqueda": {"type": "string", "description": "Texto libre para buscar: titulo parcial, cliente, o codigo BK-XXXX del contexto. NUNCA pedir codigo al usuario."},
             "titulo": {"type": "string", "description": "Nuevo titulo del item"},
-            "estado": {"type": "string", "enum": ["Backlog","En Analisis","En Desarrollo","En QA","Desplegado","Cancelado"]},
+            "estado": {"type": "string", "enum": ["Backlog","En Analisis","En Desarrollo","En QA","Desplegado","Cancelado","Archivado"]},
             "tipo": {"type": "string", "enum": ["Bug Critico","Bug Importante","Bug Menor","Solicitud Bloqueante","Solicitud Mejora","Deuda Tecnica Visible","Deuda Tecnica Interna","Requisito Lead","Roadmap"]},
             "urgencia": {"type": "string", "enum": ["Critica","Alta","Media","Baja"]},
             "cliente": {"type": "string", "description": "Nombre del cliente o lead a asociar"},
@@ -119,7 +119,9 @@ TOOL_ACTUALIZAR_ITEM = {
             "esfuerzo_talla": {"type": "string", "enum": ["XS","S","M","L","XL"]},
             "skill_requerido": {"type": "string", "description": "Skill necesario: Backend, Frontend, etc."},
             "notas_dev": {"type": "string"},
-            "notas_pm": {"type": "string"}
+            "notas_pm": {"type": "string"},
+            "limpiar_adjuntos": {"type": "boolean", "description": "true para quitar TODAS las imagenes/adjuntos del item"},
+            "quitar_cliente": {"type": "boolean", "description": "true para desasociar el cliente del item"}
         },
         "required": ["codigo_o_busqueda"]
     }
@@ -197,11 +199,11 @@ TOOL_REASIGNAR_BUG_GUARD = {
 
 TOOL_GESTIONAR_CLIENTE = {
     "name": "gestionar_cliente",
-    "description": "Crea o actualiza un cliente o lead. Soporta: MRR, tamano, SLA, contacto (nombre, whatsapp, email, cargo), renovacion, segmento, notas.",
+    "description": "Crea, actualiza o ELIMINA un cliente o lead. Para eliminar: usa eliminar_cliente o eliminar_lead (soft delete, cambia estado a Churned/Perdido).",
     "input_schema": {
         "type": "object",
         "properties": {
-            "accion": {"type": "string", "enum": ["crear_cliente","actualizar_cliente","crear_lead","actualizar_lead","convertir_lead"]},
+            "accion": {"type": "string", "enum": ["crear_cliente","actualizar_cliente","eliminar_cliente","crear_lead","actualizar_lead","eliminar_lead","convertir_lead"]},
             "codigo_o_nombre": {"type": "string"},
             "nombre_clinica": {"type": "string"},
             "mrr_mensual": {"type": "number"},
@@ -225,11 +227,11 @@ TOOL_GESTIONAR_CLIENTE = {
 
 TOOL_GESTIONAR_DEV = {
     "name": "gestionar_dev",
-    "description": "Crea o actualiza un desarrollador. Para crear necesitas: nombre_completo, nivel, jornada, skills, whatsapp. La jornada define las horas: full_time=40h, medio_tiempo=30h, part_time=20h.",
+    "description": "Crea, actualiza o DESACTIVA un desarrollador. Para desactivar: usa desactivar_dev (no lo elimina, solo marca como no disponible). Para crear necesitas: nombre_completo, nivel, jornada, skills, whatsapp.",
     "input_schema": {
         "type": "object",
         "properties": {
-            "accion": {"type": "string", "enum": ["crear_dev","actualizar_dev"]},
+            "accion": {"type": "string", "enum": ["crear_dev","actualizar_dev","desactivar_dev"]},
             "codigo_o_nombre": {"type": "string", "description": "Para actualizar: nombre o codigo del dev"},
             "nombre_completo": {"type": "string"},
             "nivel": {"type": "string", "enum": ["Junior","Mid","Senior"]},
