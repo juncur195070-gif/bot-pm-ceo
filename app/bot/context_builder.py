@@ -197,6 +197,49 @@ async def construir_contexto(
         except Exception as e:
             print(f"  ⚠ Error cargando renovaciones: {e}")
 
+    # 4c. Inyectar resumen standup diario para PM y CEO (cached 1 hora)
+    if usuario["rol"] in ("pm", "ceo"):
+        try:
+            now = datetime.now(LIMA_TZ)
+            if not hasattr(construir_contexto, '_standup_cache'):
+                construir_contexto._standup_cache = {"texto": None, "updated_at": None}
+            cache = construir_contexto._standup_cache
+            cache_valido = (cache["texto"] is not None and cache["updated_at"]
+                          and (now - cache["updated_at"]).seconds < 3600)
+
+            if not cache_valido:
+                # Items en riesgo (deadline <=3 dias)
+                en_riesgo = await conn.fetchval(
+                    "SELECT count(*) FROM backlog_items WHERE deadline_interno IS NOT NULL AND deadline_interno <= CURRENT_DATE + 3 AND estado NOT IN ('Desplegado','Cancelado','Archivado')"
+                )
+                # Bugs criticos abiertos
+                bugs_crit = await conn.fetchval(
+                    "SELECT count(*) FROM backlog_items WHERE tipo='Bug Critico' AND estado NOT IN ('Desplegado','Cancelado','Archivado')"
+                )
+                # Items sin asignar
+                sin_asignar = await conn.fetchval(
+                    "SELECT count(*) FROM backlog_items WHERE dev_id IS NULL AND estado='Backlog'"
+                )
+
+                partes = []
+                if bugs_crit > 0:
+                    partes.append(f"🚨 {bugs_crit} bugs criticos abiertos")
+                if en_riesgo > 0:
+                    partes.append(f"⚠️ {en_riesgo} items con deadline <=3 dias")
+                if sin_asignar > 0:
+                    partes.append(f"📦 {sin_asignar} items sin asignar en backlog")
+
+                if partes:
+                    cache["texto"] = "\n\nALERTAS ACTIVAS (menciona brevemente al inicio):\n" + "\n".join(partes)
+                else:
+                    cache["texto"] = ""
+                cache["updated_at"] = now
+
+            if cache["texto"]:
+                prompt += cache["texto"]
+        except Exception as e:
+            print(f"  ⚠ Error cargando standup: {e}")
+
     # 5. Obtener tools permitidos para el rol
     tools = get_tools_por_rol(usuario["rol"])
 

@@ -262,6 +262,30 @@ TOOL_ACTUALIZAR_ESTADO_DEV = {
     }
 }
 
+TOOL_PREDECIR_ENTREGA = {
+    "name": "predecir_entrega",
+    "description": "Predice cuándo se completará una tarea o el sprint completo. Usa datos históricos reales del equipo (Monte Carlo). Usa para: '¿cuándo estará listo X?', '¿cuándo terminamos el sprint?', 'fecha estimada de entrega'.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "codigo_o_busqueda": {"type": "string", "description": "Titulo o codigo de una tarea específica. Si vacío, predice el sprint completo."},
+            "modo": {"type": "string", "enum": ["item", "sprint"], "description": "item=una tarea, sprint=todas las tareas activas", "default": "item"}
+        }
+    }
+}
+
+TOOL_CAMBIAR_ROL = {
+    "name": "cambiar_rol",
+    "description": "Cambia el rol del usuario actual entre PM y CEO. Solo PM y CEO pueden cambiar entre si.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "nuevo_rol": {"type": "string", "enum": ["pm", "ceo"], "description": "Nuevo rol deseado"}
+        },
+        "required": ["nuevo_rol"]
+    }
+}
+
 TOOL_ADJUNTAR_IMAGEN = {
     "name": "adjuntar_imagen",
     "description": "Adjunta las imagenes recientes del usuario a un item del backlog. Usa cuando el usuario envia una imagen y quiere asociarla a un bug o tarea. Busca automaticamente imagenes enviadas en los ultimos 10 minutos.",
@@ -292,18 +316,20 @@ ALL_TOOLS = [
     TOOL_GESTIONAR_DEV,
     TOOL_ADJUNTAR_IMAGEN,
     TOOL_ACTUALIZAR_ESTADO_DEV,
+    TOOL_CAMBIAR_ROL,
+    TOOL_PREDECIR_ENTREGA,
 ]
 
 # ── Tools filtrados por rol ──
 # Cada rol solo ve los tools que puede usar
 
 TOOLS_POR_ROL = {
-    "pm": [t["name"] for t in ALL_TOOLS if t["name"] != "actualizar_estado_dev"],  # Todos excepto tool de dev
+    "pm": [t["name"] for t in ALL_TOOLS if t["name"] not in ("actualizar_estado_dev",)],  # Todos excepto tool de dev
     "ceo": [
         "consultar_backlog", "consultar_item", "consultar_equipo",
         "consultar_metricas", "consultar_cliente",
         "crear_item", "asignar_tarea", "derivar_a_persona",
-        "gestionar_cliente", "adjuntar_imagen",
+        "gestionar_cliente", "adjuntar_imagen", "cambiar_rol", "predecir_entrega",
     ],
     "desarrollador": [
         "consultar_backlog", "consultar_item", "consultar_equipo",
