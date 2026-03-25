@@ -29,7 +29,23 @@ async def gestionar_cliente(conn, params):
         verificado = await q_clientes.obtener_cliente(conn, cliente["codigo"])
         if not verificado:
             return fail(f"Cliente se intento crear pero NO se verifico en BD")
-        return ok({"message": "Cliente creado y verificado", "codigo": verificado["codigo"], "data": verificado})
+
+        # Detectar datos faltantes para priorización y sugerir
+        faltantes = []
+        if not verificado.get("mrr_mensual") or float(verificado.get("mrr_mensual", 0)) == 0:
+            faltantes.append("MRR mensual (para priorizar tareas por valor del cliente)")
+        if not verificado.get("sla_dias") or verificado.get("sla_dias") == 7:
+            faltantes.append("SLA en dias (para alertas de cumplimiento)")
+        if not verificado.get("contacto_nombre"):
+            faltantes.append("contacto principal (nombre, whatsapp)")
+        if not verificado.get("fecha_renovacion"):
+            faltantes.append("fecha de renovacion (para alertas de vencimiento)")
+
+        tip = ""
+        if faltantes:
+            tip = f" Puedes agregar despues: {', '.join(faltantes)}. Usa gestionar_cliente para actualizar."
+
+        return ok({"message": f"Cliente creado y verificado.{tip}", "codigo": verificado["codigo"], "data": verificado})
 
     elif accion == "actualizar_cliente":
         nombre = params.get("codigo_o_nombre", "")
@@ -64,7 +80,15 @@ async def gestionar_cliente(conn, params):
         verificado = await q_leads.obtener_lead(conn, lead["codigo"])
         if not verificado:
             return fail("Lead se intento crear pero NO se verifico en BD")
-        return ok({"message": "Lead creado y verificado", "codigo": verificado["codigo"], "data": verificado})
+        faltantes = []
+        if not verificado.get("probabilidad_cierre") or float(verificado.get("probabilidad_cierre", 0)) == 0:
+            faltantes.append("probabilidad de cierre (%)")
+        if not verificado.get("mrr_estimado") or float(verificado.get("mrr_estimado", 0)) == 0:
+            faltantes.append("MRR estimado")
+        if not verificado.get("contacto_nombre"):
+            faltantes.append("contacto principal")
+        tip = f" Puedes agregar despues: {', '.join(faltantes)} para mejor seguimiento." if faltantes else ""
+        return ok({"message": f"Lead creado y verificado.{tip}", "codigo": verificado["codigo"], "data": verificado})
 
     elif accion == "actualizar_lead":
         nombre = params.get("codigo_o_nombre", "")
