@@ -7,6 +7,7 @@ Coordina todo el procesamiento de un mensaje:
 Es el archivo que conecta todos los servicios y modulos.
 """
 
+import asyncio
 import asyncpg
 from app.config.database import get_pool
 from app.services.kapso import kapso_service
@@ -15,44 +16,61 @@ from app.bot.agent_loop import ejecutar_loop
 from app.db.queries import auditoria as q_audit
 from app.utils.phone import normalizar as normalizar_telefono
 
+# Lock por usuario — evita procesar 2 mensajes del mismo usuario en paralelo
+# Si el PM envia 2 mensajes rapido, el segundo espera a que termine el primero
+_user_locks: dict[str, asyncio.Lock] = {}
+
 
 async def procesar_mensaje(payload: dict, idempotency_key: str):
     """
     Flujo principal completo de procesamiento de un mensaje.
 
     Se ejecuta como BackgroundTask de FastAPI (no bloquea el webhook).
+    Usa lock por usuario para evitar procesamiento paralelo (previene duplicados).
 
     Args:
         payload: Payload crudo de Kapso
         idempotency_key: UUID de Kapso para deduplicacion
     """
-    pool = get_pool()
-    async with pool.acquire() as conn:
-        try:
-            await _procesar(conn, payload, idempotency_key)
-        except Exception as e:
-            print(f"❌ Error procesando mensaje: {e}")
-            # Notificar al usuario con mensaje apropiado
-            try:
-                msg_data = kapso_service.extraer_mensaje(payload)
-                error_msg = str(e).lower()
-                if "rate limit" in error_msg:
-                    texto_error = "Estoy procesando muchos mensajes. Espera unos segundos e intenta de nuevo."
-                else:
-                    texto_error = "Tuve un error procesando tu mensaje. Intenta de nuevo."
-                await kapso_service.enviar_texto_seguro(msg_data["from"], texto_error)
-            except Exception as notify_err:
-                print(f"  ⚠ No se pudo notificar error al usuario: {notify_err}")
+    # Obtener whatsapp del usuario para el lock
+    try:
+        msg_data = kapso_service.extraer_mensaje(payload)
+        user_phone = msg_data["from"]
+    except Exception:
+        user_phone = "unknown"
 
-            # Registrar error en auditoria
-            await q_audit.registrar_accion(
-                conn,
-                origen="bot",
-                accion="error_detectado",
-                detalle=str(e),
-                resultado="Error",
-                error_detalle=str(e)
-            )
+    # Crear lock si no existe para este usuario
+    if user_phone not in _user_locks:
+        _user_locks[user_phone] = asyncio.Lock()
+
+    # Procesar con lock — si hay otro mensaje del mismo usuario, espera
+    async with _user_locks[user_phone]:
+        pool = get_pool()
+        async with pool.acquire() as conn:
+            try:
+                await _procesar(conn, payload, idempotency_key)
+            except Exception as e:
+                print(f"❌ Error procesando mensaje: {e}")
+                # Notificar al usuario con mensaje apropiado
+                try:
+                    error_msg = str(e).lower()
+                    if "rate limit" in error_msg:
+                        texto_error = "Estoy procesando muchos mensajes. Espera unos segundos e intenta de nuevo."
+                    else:
+                        texto_error = "Tuve un error procesando tu mensaje. Intenta de nuevo."
+                    await kapso_service.enviar_texto_seguro(msg_data["from"], texto_error)
+                except Exception as notify_err:
+                    print(f"  ⚠ No se pudo notificar error al usuario: {notify_err}")
+
+                # Registrar error en auditoria
+                await q_audit.registrar_accion(
+                    conn,
+                    origen="bot",
+                    accion="error_detectado",
+                    detalle=str(e),
+                    resultado="Error",
+                    error_detalle=str(e)
+                )
 
 
 async def _procesar(conn: asyncpg.Connection, payload: dict, idempotency_key: str):
