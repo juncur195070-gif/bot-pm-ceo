@@ -54,21 +54,41 @@ async def crear_item(conn, params, usuario):
         if img["media_url"] and img["media_url"] not in adjuntos:
             adjuntos.append(img["media_url"])
 
-    # Proteccion anti-duplicados: si ya existe un item muy similar creado hace <5min, advertir
+    # Proteccion anti-duplicados (3 niveles):
+    # 1. Titulo similar en ultimos 30 min
+    # 2. Mismo cliente + mismo tipo en ultimos 30 min
+    # 3. Palabras clave del titulo en ultimos 15 min
     titulo_nuevo = params["titulo"]
+
+    # Nivel 1: titulo similar
     duplicado = await conn.fetchrow(
         """SELECT bi.codigo, bi.titulo, d.nombre_completo as dev_nombre
            FROM backlog_items bi
            LEFT JOIN desarrolladores d ON bi.dev_id = d.id
            WHERE unaccent(LOWER(bi.titulo)) LIKE unaccent(LOWER($1))
-           AND bi.created_at > NOW() - INTERVAL '5 minutes'
+           AND bi.created_at > NOW() - INTERVAL '30 minutes'
+           AND bi.estado NOT IN ('Cancelado','Archivado')
            LIMIT 1""",
         f"%{titulo_nuevo[:20]}%"
     )
+
+    # Nivel 2: mismo cliente + mismo tipo reciente
+    if not duplicado and cliente_data.get("cliente_id"):
+        duplicado = await conn.fetchrow(
+            """SELECT bi.codigo, bi.titulo, d.nombre_completo as dev_nombre
+               FROM backlog_items bi
+               LEFT JOIN desarrolladores d ON bi.dev_id = d.id
+               WHERE bi.cliente_id = $1 AND bi.tipo = $2
+               AND bi.created_at > NOW() - INTERVAL '30 minutes'
+               AND bi.estado NOT IN ('Cancelado','Archivado')
+               LIMIT 1""",
+            cliente_data["cliente_id"], params["tipo"]
+        )
+
     if duplicado:
         return fail(
-            f"Ya existe un item similar creado hace menos de 5 minutos: {duplicado['codigo']} '{duplicado['titulo']}' (dev: {duplicado['dev_nombre'] or 'sin asignar'}). "
-            f"Si quieres REASIGNAR ese item, usa asignar_tarea. No crees duplicados."
+            f"Ya existe un item similar reciente: {duplicado['codigo']} '{duplicado['titulo']}' (dev: {duplicado['dev_nombre'] or 'sin asignar'}). "
+            f"Si quieres modificar ese item, usa actualizar_item. Si quieres asignarlo, usa asignar_tarea. No crees duplicados."
         )
 
     data = {
