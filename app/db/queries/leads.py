@@ -137,4 +137,12 @@ async def convertir_lead_a_cliente(conn: asyncpg.Connection, codigo_lead: str, d
         cliente["id"], codigo_lead
     )
 
-    return {"cliente": cliente, "lead": lead}
+    # Reasignar items del lead al nuevo cliente
+    items_migrados = await conn.execute(
+        """UPDATE backlog_items SET
+            cliente_id = $1, es_lead = FALSE
+           WHERE lead_id = $2 AND es_lead = TRUE""",
+        cliente["id"], lead["id"]
+    )
+
+    return {"cliente": cliente, "lead": lead, "items_migrados": str(items_migrados)}

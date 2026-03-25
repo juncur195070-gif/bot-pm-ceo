@@ -46,10 +46,10 @@ async def asignar_emergencia(conn: asyncpg.Connection, item_id, item_codigo: str
     # 2. Asignar al Bug Guard
     await conn.execute(
         """UPDATE backlog_items SET
-            dev_id = $1, dev_nombre = $2,
+            dev_id = $1,
             fecha_asignacion = NOW()
-           WHERE id = $3""",
-        bug_guard["id"], bug_guard["nombre_completo"], item_id
+           WHERE id = $2""",
+        bug_guard["id"], item_id
     )
 
     # 3. Notificar al Bug Guard

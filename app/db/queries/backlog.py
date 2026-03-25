@@ -26,21 +26,21 @@ async def listar_backlog(
     idx = 1
 
     if estado:
-        where += f" AND estado = ${idx}"; params.append(estado); idx += 1
+        where += f" AND bi.estado = ${idx}"; params.append(estado); idx += 1
     if cliente_id:
-        where += f" AND cliente_id = ${idx}"; params.append(cliente_id); idx += 1
+        where += f" AND bi.cliente_id = ${idx}"; params.append(cliente_id); idx += 1
     if dev_id:
-        where += f" AND dev_id = ${idx}"; params.append(dev_id); idx += 1
+        where += f" AND bi.dev_id = ${idx}"; params.append(dev_id); idx += 1
     if tipo:
-        where += f" AND tipo = ${idx}"; params.append(tipo); idx += 1
+        where += f" AND bi.tipo = ${idx}"; params.append(tipo); idx += 1
     if urgencia:
-        where += f" AND urgencia_declarada = ${idx}"; params.append(urgencia); idx += 1
+        where += f" AND bi.urgencia_declarada = ${idx}"; params.append(urgencia); idx += 1
 
     # Excluir terminados por defecto si no se filtra por estado
     if not estado:
-        where += " AND estado NOT IN ('Desplegado','Cancelado','Archivado')"
+        where += " AND bi.estado NOT IN ('Desplegado','Cancelado','Archivado')"
 
-    total = await conn.fetchval(f"SELECT COUNT(*) FROM backlog_items {where}", *params)
+    total = await conn.fetchval(f"SELECT COUNT(*) FROM backlog_items bi {where}", *params)
 
     # Parsear sort con whitelist contra SQL injection
     from app.config.settings import settings
@@ -54,7 +54,13 @@ async def listar_backlog(
 
     offset = (page - 1) * per_page
     rows = await conn.fetch(
-        f"""SELECT * FROM backlog_items {where}
+        f"""SELECT bi.*, c.nombre_clinica as cliente_nombre, c.mrr_mensual as cliente_mrr,
+                   c.tamano as cliente_tamano, c.sla_dias as cliente_sla_dias,
+                   d.nombre_completo as dev_nombre
+            FROM backlog_items bi
+            LEFT JOIN clientes c ON bi.cliente_id = c.id
+            LEFT JOIN desarrolladores d ON bi.dev_id = d.id
+            {where}
             ORDER BY {sort_field} {sort_dir}
             LIMIT ${idx} OFFSET ${idx + 1}""",
         *params, per_page, offset
@@ -77,11 +83,20 @@ def _normalizar_codigo(texto: str) -> str:
 async def obtener_item(conn: asyncpg.Connection, codigo: str) -> Optional[dict]:
     """Obtiene un item por codigo. Acepta BK0002, BK-0002, bk 0002, etc."""
     codigo = _normalizar_codigo(codigo)
-    row = await conn.fetchrow("SELECT * FROM backlog_items WHERE codigo = $1", codigo)
+    row = await conn.fetchrow(
+        """SELECT bi.*, c.nombre_clinica as cliente_nombre, c.mrr_mensual as cliente_mrr,
+                  c.tamano as cliente_tamano, c.sla_dias as cliente_sla_dias,
+                  d.nombre_completo as dev_nombre
+           FROM backlog_items bi
+           LEFT JOIN clientes c ON bi.cliente_id = c.id
+           LEFT JOIN desarrolladores d ON bi.dev_id = d.id
+           WHERE bi.codigo = $1""",
+        codigo
+    )
     return dict(row) if row else None
 
 
-async def buscar_items(conn: asyncpg.Connection, texto: str, limite: int = 5) -> list[dict]:
+async def buscar_items(conn: asyncpg.Connection, texto: str, limite: int = 5, incluir_cancelados: bool = False) -> list[dict]:
     """
     Busca items por texto con ranking por relevancia:
     1. Busqueda exacta con texto completo
@@ -94,17 +109,24 @@ async def buscar_items(conn: asyncpg.Connection, texto: str, limite: int = 5) ->
     }
 
     # 1. Busqueda con texto completo (unaccent para tolerar tildes)
-    query = """SELECT * FROM backlog_items
+    query = """SELECT bi.*, c.nombre_clinica as cliente_nombre, c.mrr_mensual as cliente_mrr,
+                      c.tamano as cliente_tamano, c.sla_dias as cliente_sla_dias,
+                      d.nombre_completo as dev_nombre
+           FROM backlog_items bi
+           LEFT JOIN clientes c ON bi.cliente_id = c.id
+           LEFT JOIN desarrolladores d ON bi.dev_id = d.id
            WHERE (
-               unaccent(LOWER(titulo)) LIKE unaccent(LOWER($1))
-               OR unaccent(LOWER(descripcion)) LIKE unaccent(LOWER($1))
-               OR unaccent(LOWER(cliente_nombre)) LIKE unaccent(LOWER($1))
-               OR LOWER(codigo) LIKE LOWER($1)
-               OR unaccent(LOWER(dev_nombre)) LIKE unaccent(LOWER($1))
-               OR unaccent(LOWER(tipo)) LIKE unaccent(LOWER($1))
+               unaccent(LOWER(bi.titulo)) LIKE unaccent(LOWER($1))
+               OR unaccent(LOWER(bi.descripcion)) LIKE unaccent(LOWER($1))
+               OR unaccent(LOWER(c.nombre_clinica)) LIKE unaccent(LOWER($1))
+               OR LOWER(bi.codigo) LIKE LOWER($1)
+               OR unaccent(LOWER(d.nombre_completo)) LIKE unaccent(LOWER($1))
+               OR unaccent(LOWER(bi.tipo)) LIKE unaccent(LOWER($1))
            )
-           AND estado NOT IN ('Desplegado','Cancelado','Archivado')
-           ORDER BY posicion_backlog ASC LIMIT $2"""
+           AND bi.estado NOT IN ('Desplegado'{0})
+           ORDER BY bi.posicion_backlog ASC LIMIT $2""".format(
+               "" if incluir_cancelados else ",'Cancelado','Archivado'"
+           )
 
     rows = await conn.fetch(query, f"%{texto}%", limite)
     if rows:
@@ -115,11 +137,17 @@ async def buscar_items(conn: asyncpg.Connection, texto: str, limite: int = 5) ->
     if not palabras:
         return []
 
-    # Buscar todos los items activos
+    # Buscar todos los items (incluir cancelados si se pide)
+    excluir = "('Desplegado')" if incluir_cancelados else "('Desplegado','Cancelado','Archivado')"
     todos = await conn.fetch(
-        """SELECT * FROM backlog_items
-           WHERE estado NOT IN ('Desplegado','Cancelado','Archivado')
-           ORDER BY posicion_backlog ASC"""
+        f"""SELECT bi.*, c.nombre_clinica as cliente_nombre, c.mrr_mensual as cliente_mrr,
+                  c.tamano as cliente_tamano, c.sla_dias as cliente_sla_dias,
+                  d.nombre_completo as dev_nombre
+           FROM backlog_items bi
+           LEFT JOIN clientes c ON bi.cliente_id = c.id
+           LEFT JOIN desarrolladores d ON bi.dev_id = d.id
+           WHERE bi.estado NOT IN {excluir}
+           ORDER BY bi.posicion_backlog ASC"""
     )
 
     # Rankear por cantidad de palabras que coinciden en titulo+descripcion+cliente
@@ -154,22 +182,25 @@ async def crear_item(conn: asyncpg.Connection, data: dict) -> dict:
                 return None
         return None
 
+    # Remove denormalized fields before INSERT (obtained via JOINs now)
+    for key in ("cliente_nombre", "cliente_mrr", "cliente_tamano", "cliente_sla_dias", "dev_nombre"):
+        data.pop(key, None)
+
     row = await conn.fetchrow(
         """INSERT INTO backlog_items (
             titulo, tipo, estado, descripcion, reportado_por_id,
-            cliente_id, cliente_nombre, cliente_mrr, cliente_tamano, cliente_sla_dias,
+            cliente_id,
             es_lead, lead_id, urgencia_declarada,
             deadline_interno, fecha_qa_estimada, deadline_cliente,
             impacto_todos_usuarios, skill_requerido, esfuerzo_talla,
             adjuntos_urls, notas_pm
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
-        RETURNING *""",
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        RETURNING codigo""",
         data.get("titulo"), data.get("tipo"),
         data.get("estado", "Backlog"),  # Siempre Backlog al crear
         data.get("descripcion"),
         data.get("reportado_por_id"),
-        data.get("cliente_id"), data.get("cliente_nombre"), float(data.get("cliente_mrr", 0) or 0),
-        data.get("cliente_tamano"), data.get("cliente_sla_dias"),
+        data.get("cliente_id"),
         data.get("es_lead", False), data.get("lead_id"),
         data.get("urgencia_declarada"),
         _to_date(data.get("deadline_interno")), _to_date(data.get("fecha_qa_estimada")),
@@ -179,12 +210,18 @@ async def crear_item(conn: asyncpg.Connection, data: dict) -> dict:
         data.get("esfuerzo_talla"), data.get("adjuntos_urls", []),
         data.get("notas_pm")
     )
-    return dict(row)
+    # Retornar con JOINs para incluir cliente_nombre, dev_nombre, etc.
+    return await obtener_item(conn, row["codigo"])
 
 
 async def actualizar_item(conn: asyncpg.Connection, codigo: str, data: dict) -> Optional[dict]:
     """Actualiza campos de un item. Convierte fechas string a date. Permite NULL explicito."""
     from datetime import date as date_type, datetime as datetime_type
+
+    # Remove denormalized fields before UPDATE (obtained via JOINs now)
+    for key in ("cliente_nombre", "cliente_mrr", "cliente_tamano", "cliente_sla_dias", "dev_nombre"):
+        data.pop(key, None)
+
     DATE_FIELDS = {"deadline_interno", "fecha_qa_estimada", "deadline_cliente"}
     TIMESTAMP_FIELDS = {"fecha_asignacion", "fecha_inicio_desarrollo", "fecha_qa", "fecha_desplegado"}
     NULLABLE_FIELDS = {"cliente_id", "lead_id", "dev_id"}
@@ -216,10 +253,13 @@ async def actualizar_item(conn: asyncpg.Connection, codigo: str, data: dict) -> 
 
     params.append(codigo)
     row = await conn.fetchrow(
-        f"UPDATE backlog_items SET {', '.join(sets)} WHERE codigo = ${len(params)} RETURNING *",
+        f"UPDATE backlog_items SET {', '.join(sets)} WHERE codigo = ${len(params)} RETURNING codigo",
         *params
     )
-    return dict(row) if row else None
+    if not row:
+        return None
+    # Retornar con JOINs para incluir cliente_nombre, dev_nombre, etc.
+    return await obtener_item(conn, row["codigo"])
 
 
 async def obtener_kanban(conn: asyncpg.Connection) -> dict[str, list[dict]]:
@@ -228,10 +268,13 @@ async def obtener_kanban(conn: asyncpg.Connection) -> dict[str, list[dict]]:
     result = {}
     for estado in estados:
         rows = await conn.fetch(
-            """SELECT codigo, titulo, tipo, urgencia_declarada, dev_nombre,
-                      score_wsjf, deadline_interno, esfuerzo_talla
-               FROM backlog_items WHERE estado = $1
-               ORDER BY posicion_backlog ASC LIMIT 50""",
+            """SELECT bi.codigo, bi.titulo, bi.tipo, bi.urgencia_declarada,
+                      d.nombre_completo as dev_nombre,
+                      bi.score_wsjf, bi.deadline_interno, bi.esfuerzo_talla
+               FROM backlog_items bi
+               LEFT JOIN desarrolladores d ON bi.dev_id = d.id
+               WHERE bi.estado = $1
+               ORDER BY bi.posicion_backlog ASC LIMIT 50""",
             estado
         )
         result[estado] = [dict(r) for r in rows]

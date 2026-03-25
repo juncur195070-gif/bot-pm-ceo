@@ -15,7 +15,7 @@ Ejemplo de flujo:
 
 import asyncpg
 from app.services.claude import claude_service
-from app.bot.tool_executor import ejecutar_tool
+from app.tools.registry import ejecutar_tool
 
 MAX_ITERATIONS = 3  # Reducido de 5 a 3 — suficiente para consulta+accion+respuesta
 

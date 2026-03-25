@@ -29,7 +29,8 @@ async def ejecutar_monitoreo():
     async with pool.acquire() as conn:
         # 1. Deadlines proximos (<= 3 dias)
         rows = await conn.fetch(
-            """SELECT bi.codigo, bi.titulo, bi.tipo, bi.dev_nombre,
+            """SELECT bi.codigo, bi.titulo, bi.tipo,
+                      d.nombre_completo as dev_nombre,
                       bi.deadline_interno, bi.deadline_interno - CURRENT_DATE as dias,
                       d.whatsapp as dev_whatsapp
                FROM backlog_items bi
@@ -52,10 +53,11 @@ async def ejecutar_monitoreo():
 
         # 2. Deadlines vencidos
         rows = await conn.fetch(
-            """SELECT codigo, titulo, dev_nombre, deadline_interno
-               FROM backlog_items
-               WHERE deadline_interno < CURRENT_DATE
-               AND estado NOT IN ('Desplegado','Cancelado','Archivado')"""
+            """SELECT bi.codigo, bi.titulo, d.nombre_completo as dev_nombre, bi.deadline_interno
+               FROM backlog_items bi
+               LEFT JOIN desarrolladores d ON bi.dev_id = d.id
+               WHERE bi.deadline_interno < CURRENT_DATE
+               AND bi.estado NOT IN ('Desplegado','Cancelado','Archivado')"""
         )
         for r in rows:
             alertas.append({
@@ -66,11 +68,12 @@ async def ejecutar_monitoreo():
 
         # 3. Tareas estancadas >4 dias
         rows = await conn.fetch(
-            """SELECT codigo, titulo, dev_nombre,
-                      EXTRACT(DAY FROM NOW() - fecha_inicio_desarrollo) as dias_dev
-               FROM backlog_items
-               WHERE estado = 'En Desarrollo'
-               AND fecha_inicio_desarrollo < NOW() - INTERVAL '4 days'"""
+            """SELECT bi.codigo, bi.titulo, d.nombre_completo as dev_nombre,
+                      EXTRACT(DAY FROM NOW() - bi.fecha_inicio_desarrollo) as dias_dev
+               FROM backlog_items bi
+               LEFT JOIN desarrolladores d ON bi.dev_id = d.id
+               WHERE bi.estado = 'En Desarrollo'
+               AND bi.fecha_inicio_desarrollo < NOW() - INTERVAL '4 days'"""
         )
         for r in rows:
             alertas.append({

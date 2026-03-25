@@ -73,12 +73,13 @@ async def dashboard_general(conn: asyncpg.Connection, periodo: str = "esta_seman
 
     # Items en riesgo (deadline en 3 dias o menos)
     riesgo_rows = await conn.fetch(
-        """SELECT codigo, titulo, tipo, dev_nombre, deadline_interno,
-                  deadline_interno - CURRENT_DATE as dias_restantes
-           FROM backlog_items
-           WHERE deadline_interno IS NOT NULL
-           AND deadline_interno <= CURRENT_DATE + 3
-           AND estado NOT IN ('Desplegado','Cancelado','Archivado')
+        """SELECT bi.codigo, bi.titulo, bi.tipo, d.nombre_completo as dev_nombre, bi.deadline_interno,
+                  bi.deadline_interno - CURRENT_DATE as dias_restantes
+           FROM backlog_items bi
+           LEFT JOIN desarrolladores d ON bi.dev_id = d.id
+           WHERE bi.deadline_interno IS NOT NULL
+           AND bi.deadline_interno <= CURRENT_DATE + 3
+           AND bi.estado NOT IN ('Desplegado','Cancelado','Archivado')
            ORDER BY deadline_interno ASC"""
     )
 
@@ -223,10 +224,11 @@ async def predecir_sprint(conn: asyncpg.Connection) -> dict:
 
     # Items activos (asignados, no desplegados)
     items = await conn.fetch(
-        """SELECT esfuerzo_talla, dev_nombre FROM backlog_items
-           WHERE estado IN ('Backlog', 'En Analisis', 'En Desarrollo', 'En QA')
-           AND dev_id IS NOT NULL
-           ORDER BY score_wsjf DESC"""
+        """SELECT bi.esfuerzo_talla, d.nombre_completo as dev_nombre FROM backlog_items bi
+           LEFT JOIN desarrolladores d ON bi.dev_id = d.id
+           WHERE bi.estado IN ('Backlog', 'En Analisis', 'En Desarrollo', 'En QA')
+           AND bi.dev_id IS NOT NULL
+           ORDER BY bi.score_wsjf DESC"""
     )
 
     if not items:
