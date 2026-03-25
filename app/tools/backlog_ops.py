@@ -231,7 +231,20 @@ async def crear_item(conn, params, usuario):
       except Exception as e:
         print(f"  ⚠ Sugerencia de asignacion fallo (no bloquea): {e}")
 
-    result = {"message": "Item creado y verificado en BD", "codigo": verificado["codigo"], "score_wsjf": verificado.get("score_wsjf"), "item": verificado}
+    # Detectar datos faltantes que mejoran la priorizacion
+    faltantes = []
+    if not verificado.get("urgencia_declarada"):
+        faltantes.append("urgencia (Critica/Alta/Media/Baja)")
+    if not verificado.get("esfuerzo_talla"):
+        faltantes.append("talla de esfuerzo (XS/S/M/L/XL)")
+    if not verificado.get("cliente_id"):
+        faltantes.append("cliente asociado")
+
+    tip = ""
+    if faltantes:
+        tip = f" Puedes agregar despues: {', '.join(faltantes)} para mejorar la priorizacion."
+
+    result = {"message": f"Item creado y verificado en BD.{tip}", "codigo": verificado["codigo"], "score_wsjf": verificado.get("score_wsjf"), "item": verificado}
     if sugerencia:
         result["sugerencia_asignacion"] = sugerencia
     return ok(result)

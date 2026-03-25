@@ -112,7 +112,12 @@ async def gestionar_dev(conn, params):
         verificado = await q_devs.obtener_dev(conn, dev["codigo"])
         if not verificado:
             return fail("Dev se intento crear pero NO se verifico en BD")
-        return ok({"message": "Dev creado y verificado", "codigo": verificado["codigo"], "data": verificado})
+        # Sugerir datos opcionales faltantes
+        faltantes = []
+        if not verificado.get("email"):
+            faltantes.append("email")
+        tip = f" Puedes agregar despues: {', '.join(faltantes)}." if faltantes else ""
+        return ok({"message": f"Dev creado y verificado.{tip}", "codigo": verificado["codigo"], "data": verificado})
 
     elif accion == "actualizar_dev":
         nombre = params.get("codigo_o_nombre", "")
