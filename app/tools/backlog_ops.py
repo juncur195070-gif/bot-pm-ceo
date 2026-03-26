@@ -40,14 +40,18 @@ async def crear_item(conn, params, usuario):
                     sugerencia="Usa gestionar_cliente con accion='crear_cliente' para registrarlo primero, luego crea el item."
                 )
 
-    # Recoger imagenes recientes
+    # Recoger imagenes recientes que NO esten ya adjuntas a otro item
     adjuntos = params.get("adjuntos_urls", [])
     imagenes_recientes = await conn.fetch(
-        """SELECT media_url FROM mensajes_conversacion
-           WHERE usuario_id = $1 AND tipo_contenido = 'imagen'
-           AND media_url IS NOT NULL
-           AND created_at > NOW() - make_interval(mins => $2)
-           ORDER BY created_at DESC LIMIT 5""",
+        """SELECT mc.media_url FROM mensajes_conversacion mc
+           WHERE mc.usuario_id = $1 AND mc.tipo_contenido = 'imagen'
+           AND mc.media_url IS NOT NULL
+           AND mc.created_at > NOW() - make_interval(mins => $2)
+           AND NOT EXISTS (
+               SELECT 1 FROM backlog_items bi
+               WHERE mc.media_url = ANY(bi.adjuntos_urls)
+           )
+           ORDER BY mc.created_at DESC LIMIT 5""",
         usuario["id"], settings.IMAGEN_RECIENTE_MINUTOS
     )
     for img in imagenes_recientes:
