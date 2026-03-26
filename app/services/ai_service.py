@@ -105,34 +105,28 @@ class OpenAIService:
         return openai_tools
 
     def _convertir_messages(self, system: str, messages: list[dict]) -> list[dict]:
-        """Convierte messages de formato Anthropic → OpenAI."""
+        """Prepara messages para OpenAI. Los mensajes del agent_loop ya vienen en formato OpenAI."""
         openai_msgs = [{"role": "system", "content": system}]
 
         for msg in messages:
-            role = msg["role"]
-            content = msg.get("content")
+            role = msg.get("role")
 
-            # Mensaje de texto normal
+            # Mensaje tool (ya en formato OpenAI desde agent_loop)
+            if role == "tool":
+                openai_msgs.append(msg)
+                continue
+
+            # Assistant con tool_calls (ya en formato OpenAI desde agent_loop)
+            if role == "assistant" and "tool_calls" in msg:
+                openai_msgs.append(msg)
+                continue
+
+            # Mensaje de texto normal (user o assistant)
+            content = msg.get("content")
             if isinstance(content, str):
                 openai_msgs.append({"role": role, "content": content})
-
-            # Tool results (formato Anthropic → OpenAI)
-            elif isinstance(content, list):
-                for item in content:
-                    if isinstance(item, dict):
-                        if item.get("type") == "tool_result":
-                            openai_msgs.append({
-                                "role": "tool",
-                                "tool_call_id": item["tool_use_id"],
-                                "content": item.get("content", ""),
-                            })
-                    else:
-                        # Content blocks de Anthropic (assistant con tool_use)
-                        pass
-
-            # Assistant content con tool_use blocks (formato Anthropic)
-            elif role == "assistant" and content is not None:
-                openai_msgs.append({"role": "assistant", "content": str(content)})
+            elif content is None and role == "assistant":
+                openai_msgs.append({"role": role, "content": ""})
 
         return openai_msgs
 
