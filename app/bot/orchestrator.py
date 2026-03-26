@@ -10,6 +10,7 @@ Es el archivo que conecta todos los servicios y modulos.
 import asyncio
 import asyncpg
 from app.config.database import get_pool
+from app.config.settings import settings
 from app.services.kapso import kapso_service
 from app.bot.context_builder import construir_contexto, identificar_usuario
 from app.bot.agent_loop import ejecutar_loop
@@ -270,7 +271,7 @@ async def _procesar(conn: asyncpg.Connection, payload: dict, idempotency_key: st
             tools=contexto["tools"],
             conn=conn,
             usuario=usuario,
-            model_override="claude-sonnet-4-5-20241022",
+            model_override=settings.OPENAI_MODEL_FALLBACK if settings.AI_PROVIDER == "openai" else "claude-sonnet-4-5-20241022",
         )
         if len(resultado2["tools_usados"]) > 0:
             respuesta = resultado2["respuesta"]
