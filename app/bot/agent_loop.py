@@ -64,15 +64,16 @@ async def ejecutar_loop(
         # Si Claude fallo completamente
         if resultado["error"]:
             error_msg = resultado["error"].lower()
+            print(f"  ⚠ Claude error (iter {iteracion}): {resultado['error'][:100]}")
             if "rate limit" in error_msg:
                 respuesta_error = "Estoy procesando muchos mensajes. Espera unos segundos e intenta de nuevo."
             else:
-                respuesta_error = "Tuve un problema procesando tu mensaje. Intenta de nuevo."
+                respuesta_error = f"Tuve un problema procesando tu mensaje ({resultado['error'][:50]}). Intenta de nuevo."
             return {
                 "respuesta": respuesta_error,
                 "iteraciones": iteracion,
                 "tools_usados": tools_usados,
-                "modelo_usado": resultado["model_used"],
+                "modelo_usado": resultado.get("model_used", "unknown"),
                 "error": resultado["error"],
             }
 
