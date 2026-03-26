@@ -31,12 +31,22 @@ class Settings(BaseSettings):
     DB_POOL_MIN: int = 2
     DB_POOL_MAX: int = 10
 
-    # ── Claude API ──
+    # ── AI API (OpenAI o Anthropic) ──
+    AI_PROVIDER: str = "openai"  # "openai" o "anthropic"
+
+    # OpenAI
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL_PRIMARY: str = "gpt-4o-mini"
+    OPENAI_MODEL_FALLBACK: str = "gpt-4o-mini"
+
+    # Anthropic (fallback o si prefieres Claude)
     ANTHROPIC_API_KEY: str = ""
     CLAUDE_MODEL_PRIMARY: str = "claude-haiku-4-5-20251001"
     CLAUDE_MODEL_FALLBACK: str = "claude-3-haiku-20240307"
-    CLAUDE_MAX_TOKENS: int = 800
-    CLAUDE_TEMPERATURE: float = 0.1
+
+    # Comun
+    AI_MAX_TOKENS: int = 800
+    AI_TEMPERATURE: float = 0.1
 
     # ── WSJF Scoring ──
     WSJF_PESO_CLIENTE: float = 0.40

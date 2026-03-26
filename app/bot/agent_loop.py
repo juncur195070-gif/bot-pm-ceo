@@ -14,7 +14,8 @@ Ejemplo de flujo:
 """
 
 import asyncpg
-from app.services.claude import claude_service
+from app.services.ai_service import ai_service
+from app.config.settings import settings
 from app.tools.registry import ejecutar_tool
 
 MAX_ITERATIONS = 5  # 5 iteraciones: soporta crear dependencias (cliente→item→asignar) y acciones multiples
@@ -53,18 +54,18 @@ async def ejecutar_loop(
     while iteracion < MAX_ITERATIONS:
         iteracion += 1
 
-        # Llamar a Claude (usa model_override si viene, sino el default)
-        resultado = await claude_service.llamar(
+        # Llamar al AI service (OpenAI o Anthropic segun AI_PROVIDER)
+        resultado = await ai_service.llamar(
             system=system_prompt,
             messages=messages,
             tools=tools if tools else None,
             model=model_override,
         )
 
-        # Si Claude fallo completamente
+        # Si la IA fallo completamente
         if resultado["error"]:
             error_msg = resultado["error"].lower()
-            print(f"  ⚠ Claude error (iter {iteracion}): {resultado['error'][:100]}")
+            print(f"  ⚠ AI error (iter {iteracion}): {resultado['error'][:100]}")
             if "rate limit" in error_msg:
                 respuesta_error = "Estoy procesando muchos mensajes. Espera unos segundos e intenta de nuevo."
             else:
@@ -77,15 +78,27 @@ async def ejecutar_loop(
                 "error": resultado["error"],
             }
 
-        # Si Claude quiere usar tools
+        # Si la IA quiere usar tools
         if resultado["stop_reason"] == "tool_use" and resultado["tool_calls"]:
-            # Agregar la respuesta de Claude (con tool_use blocks) a messages
-            messages.append({
-                "role": "assistant",
-                "content": resultado["content"]
-            })
+            # Agregar assistant message al historial (formato depende del provider)
+            if settings.AI_PROVIDER == "openai":
+                # OpenAI: assistant message con tool_calls como objeto nativo
+                messages.append({
+                    "role": "assistant",
+                    "content": resultado["text"] or None,
+                    "tool_calls": [
+                        {"id": tc.id, "type": "function", "function": {"name": tc.name, "arguments": __import__("json").dumps(tc.input)}}
+                        for tc in resultado["tool_calls"]
+                    ]
+                })
+            else:
+                # Anthropic: assistant message con content blocks
+                messages.append({
+                    "role": "assistant",
+                    "content": resultado["content"]
+                })
 
-            # Ejecutar cada tool que Claude pidio
+            # Ejecutar cada tool
             tool_results = []
             for tool_call in resultado["tool_calls"]:
                 tool_name = tool_call.name
@@ -94,12 +107,10 @@ async def ejecutar_loop(
                 print(f"  🔧 Tool: {tool_name}({tool_input})")
                 tools_usados.append(tool_name)
 
-                # Ejecutar el tool
                 result = await ejecutar_tool(tool_name, tool_input, conn, usuario)
-
                 print(f"  ✅ Resultado: {result[:200]}...")
 
-                # Detectar si el tool fallo via JSON parse (robusto)
+                # Detectar si el tool fallo
                 is_error = False
                 try:
                     import json
@@ -109,19 +120,27 @@ async def ejecutar_loop(
                     is_error = result.startswith("Error")
 
                 tool_results.append({
+                    "tool_call_id": tool_call.id,
+                    "tool_use_id": tool_call.id,  # Anthropic compat
                     "type": "tool_result",
-                    "tool_use_id": tool_call.id,
                     "content": result,
                     "is_error": is_error,
                 })
 
-            # Agregar resultados de tools a messages (para que Claude los lea)
-            messages.append({
-                "role": "user",
-                "content": tool_results,
-            })
+            # Agregar resultados al historial (formato depende del provider)
+            if settings.AI_PROVIDER == "openai":
+                for tr in tool_results:
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tr["tool_call_id"],
+                        "content": tr["content"],
+                    })
+            else:
+                messages.append({
+                    "role": "user",
+                    "content": tool_results,
+                })
 
-            # Continuar el loop — Claude procesara los resultados
             continue
 
         # Si Claude termino (end_turn) — extraer respuesta final
