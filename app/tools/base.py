@@ -54,22 +54,31 @@ async def resolver_codigo(conn, codigo: str, incluir_cancelados: bool = False) -
     return items[0]["codigo"], None
 
 
+# Lock por codigo — evita que 2 syncs del mismo item corran en paralelo (race condition → duplicados)
+_airtable_locks: dict[str, asyncio.Lock] = {}
+
+
 async def sync_item_airtable(conn, codigo: str):
-    """Sincroniza un item a Airtable en background (no bloquea respuesta)."""
+    """Sincroniza un item a Airtable en background con lock anti-duplicados."""
 
     async def _do_sync():
-        try:
-            from app.config.database import get_pool
-            pool = get_pool()
-            async with pool.acquire() as sync_conn:
-                item = await q_backlog.obtener_item(sync_conn, codigo)
-                if not item:
-                    return
-                record_id = await airtable_sync.sync_backlog_item(dict(item))
-                if record_id and not item.get("airtable_record_id"):
-                    await q_backlog.actualizar_item(sync_conn, codigo, {"airtable_record_id": record_id})
-        except Exception as e:
-            print(f"  ⚠ Airtable sync failed for {codigo}: {e}")
+        # Lock por codigo — si otro sync del mismo item esta corriendo, espera
+        if codigo not in _airtable_locks:
+            _airtable_locks[codigo] = asyncio.Lock()
+
+        async with _airtable_locks[codigo]:
+            try:
+                from app.config.database import get_pool
+                pool = get_pool()
+                async with pool.acquire() as sync_conn:
+                    item = await q_backlog.obtener_item(sync_conn, codigo)
+                    if not item:
+                        return
+                    record_id = await airtable_sync.sync_backlog_item(dict(item))
+                    if record_id and not item.get("airtable_record_id"):
+                        await q_backlog.actualizar_item(sync_conn, codigo, {"airtable_record_id": record_id})
+            except Exception as e:
+                print(f"  ⚠ Airtable sync failed for {codigo}: {e}")
 
     asyncio.create_task(_do_sync())
 
